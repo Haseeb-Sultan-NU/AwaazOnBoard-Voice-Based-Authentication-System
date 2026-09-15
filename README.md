@@ -14,7 +14,7 @@ A production-oriented audio biometric authentication system delivering **low-lat
 
 | Metric | Value |
 |:---|:---|
-| **Equal Error Rate (EER)** | ~2–5% |
+| **Equal Error Rate (EER)** | 9% |
 | **Inference Latency** | Sub-second |
 | **Robustness** | Cross-channel stable (telephony ↔ microphone) |
 
