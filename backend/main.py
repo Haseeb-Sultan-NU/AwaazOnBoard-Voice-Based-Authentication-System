@@ -31,9 +31,10 @@ import datetime
 
 
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
 from fastapi import Depends
 from src.database import get_db
-from src.models import User, Enrollment, AuditLog
+from src.models import User, Enrollment, AuditLog, EnterpriseAPI
 
 # --- SUPPRESS THIRD-PARTY WARNINGS ---
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torchaudio._backend.*")
@@ -143,11 +144,65 @@ class UserSignup(BaseModel):
 class UserLogin(BaseModel):
     cnic: str
     password: str
+
+class ProfileUpdate(BaseModel):
+    user_id: str
+    full_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    email: Optional[str] = None
+
 # --- ENDPOINTS ---
 
 @app.get("/health")
 async def health_check():
     return {"status": "online", "models_loaded": len(models) > 0}
+
+# --- PROFILE ENDPOINTS ---
+
+@app.get("/profile")
+async def get_profile(user_id: str, db: Session = Depends(get_db)):
+    """Returns the user's profile data."""
+    normalized = user_id.replace("-", "").replace(" ", "").strip()
+    user = db.query(User).filter(User.user_id == normalized).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    return {
+        "user_id": user.user_id,
+        "cnic": user.cnic,
+        "full_name": user.full_name,
+        "phone_number": user.phone_number,
+        "email": getattr(user, "email", None),
+        "network_operator": user.network_operator,
+    }
+
+@app.put("/profile")
+async def update_profile(payload: ProfileUpdate, db: Session = Depends(get_db)):
+    """Updates the user's profile fields."""
+    normalized = payload.user_id.replace("-", "").replace(" ", "").strip()
+    user = db.query(User).filter(User.user_id == normalized).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    
+    if payload.full_name is not None:
+        user.full_name = payload.full_name
+    if payload.phone_number is not None:
+        user.phone_number = payload.phone_number
+    if payload.email is not None:
+        user.email = payload.email
+    
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    
+    return {
+        "status": "success",
+        "user_id": user.user_id,
+        "cnic": user.cnic,
+        "full_name": user.full_name,
+        "phone_number": user.phone_number,
+        "email": getattr(user, "email", None),
+        "network_operator": user.network_operator,
+    }
 
 @app.get("/challenge")
 async def get_challenge():
@@ -205,6 +260,18 @@ async def enroll_user(
     """Creates a secure Multi-Template Dictionary (.pt) and registers the user."""
     
     # Check if user already exists
+    # Auto-create a stub user if this CNIC doesn't exist (Sandbox flow)
+    existing_user = db.query(User).filter(User.user_id == user_id).first()
+    if not existing_user:
+        new_user = User(
+            user_id=user_id,
+            cnic=user_id,
+            hashed_password="auto_sandbox_user"
+        )
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+
     existing_enrollment = db.query(Enrollment).filter(Enrollment.user_id == user_id).first()
     if existing_enrollment:
         raise HTTPException(status_code=400, detail="User is already enrolled.")
@@ -248,10 +315,11 @@ async def enroll_user(
             # Update user with optional SIM data
             user = db.query(User).filter(User.cnic == user_id).first()
             if user:
-                # We are just logging these for now. To actually save them, 
-                # you'd need to add them to the User model in models.py
-                print(f"[SIM INFO] Phone: {phone_number}, IMSI: {imsi}, ICCID: {iccid}")
-                
+                if phone_number:
+                    user.phone_number = phone_number
+                if imsi:
+                    user.imei = imsi  # IMSI maps to imei column for SIM tracking
+                db.add(user)
             db.commit()
             
             return {"status": "success", "message": f"User {user_id} securely enrolled."}
@@ -376,6 +444,7 @@ async def signup(user_data: UserSignup, db: Session = Depends(get_db)):
     new_user = User(
         user_id=user_data.cnic, # We use CNIC as the unique User ID
         cnic=user_data.cnic, 
+        full_name=user_data.full_name,
         hashed_password=hashed_pw
     )
     
@@ -399,9 +468,7 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
     enrollment = db.query(Enrollment).filter(Enrollment.user_id == credentials.cnic).first()
     is_enrolled = True if enrollment else False
 
-    # Also, fixing the name bug: Look at your src/models.py to see exactly what 
-    # you named the column! If it's 'fullname' without an underscore, change it here:
-    display_name = getattr(user, "fullname", getattr(user, "name", credentials.cnic))
+    display_name = user.full_name or user.cnic
 
     return {
         "status": "success", 
@@ -460,39 +527,21 @@ async def verify_voice(
         # ==========================================
         print(f"[GATEKEEPER] Analyzing audio for multiple speakers or splicing...")
         
-        # 🚨 NOTE: Change `.verify()` to whatever method your Gatekeeper uses!
-        gatekeeper_passed = models["gatekeeper"].check_audio_security(clean_path) 
-        
-        if not gatekeeper_passed:
-            return {
-                "authenticated": False,
-                "similarity_score": 0.0,
-                "liveness_score": 0.0,
-                "gatekeeper_score": 0.0,
-                "risk_score": 1.0, # Maximum risk!
-                "session_id": session_id,
-                "message": "Security Alert: Multiple speakers or spliced audio detected!"
-            }
+        is_secure, security_msg = models["gatekeeper"].check_audio_security(clean_path)
+        gatekeeper_score = 1.0 if is_secure else 0.0
 
         # ==========================================
         # STEP 1: LIVENESS DETECTION (Preloaded ASR)
+        # — No early return; store result and continue —
         # ==========================================
         asr_transcription = models["asr"].transcribe(clean_path) 
         liveness_result = models["validator"].evaluate_challenge(expected_sequence, asr_transcription)
-        
-        if not liveness_result["liveness_passed"]:
-             return {
-                "authenticated": False,
-                "similarity_score": 0.0,
-                "liveness_score": liveness_result["confidence_score"] / 100, 
-                "gatekeeper_score": 1.0,
-                "risk_score": 0.9,
-                "session_id": session_id,
-                "message": liveness_result["status_message"]
-            }
+        liveness_passed = bool(liveness_result["liveness_passed"])
+        liveness_score = liveness_result["confidence_score"] / 100
 
         # ==========================================
         # STEP 2: BIOMETRIC VERIFICATION (ECAPA-TDNN)
+        # — Always runs, even if liveness/gatekeeper failed —
         # ==========================================
         template_path = f"data/enrollments/{user_id.replace(' ', '_')}_baseline.pt"
         if not os.path.exists(template_path):
@@ -541,28 +590,61 @@ async def verify_voice(
             ux_score = ((ai_similarity_score - (-1.0)) / (OPTIMAL_THRESHOLD - (-1.0))) * 0.79 
         ux_score = max(0.0, min(1.0, ux_score))
 
+        # ==========================================
+        # CONSOLIDATED DECISION (Full Evaluation)
+        # ==========================================
+        authenticated = is_secure and liveness_passed and is_match
+
+        # Build denial reason (if any)
+        if authenticated:
+            denial_msg = "Identity Verified."
+            risk = 0.1
+        else:
+            reasons = []
+            if not is_secure:
+                reasons.append(f"Gatekeeper FAIL: {security_msg}")
+            if not liveness_passed:
+                reasons.append(f"Liveness FAIL: {liveness_result['status_message']}")
+            if not is_match:
+                reasons.append("Biometric FAIL: Voice did not match baseline.")
+            denial_msg = " | ".join(reasons)
+            risk = 0.9 if not is_secure else (0.7 if not liveness_passed else 0.8)
+
+        # Determine final audit status
+        if authenticated:
+            audit_status = "GRANTED"
+        elif not is_secure:
+            audit_status = "DENIED_COERCION"
+        elif not liveness_passed:
+            audit_status = "DENIED_LIVENESS"
+        else:
+            audit_status = "DENIED_BIOMETRIC"
+
         del active_sessions[session_id]
         
         final_response = {
-            "authenticated": bool(is_match),
+            "authenticated": bool(authenticated),
             "similarity_score": float(ux_score),
-            "liveness_score": liveness_result["confidence_score"] / 100,
-            "risk_score": 0.1 if is_match else 0.8,
-            "gatekeeper_score": 1.0,
+            "liveness_score": float(liveness_score),
+            "risk_score": float(risk),
+            "gatekeeper_score": float(gatekeeper_score),
             "session_id": session_id,
-            "message": "Identity Verified." if is_match else "Voice did not match baseline."
+            "message": denial_msg
         }
 
         # ==========================================
         # STEP 3: SAVE TO DATABASE (Updates Dashboard!)
         # ==========================================
         try:
-            # Assuming you have an AuditLog or Session table in models.py
+            expected_str = ",".join(map(str, expected_sequence))
             new_log = AuditLog(
                 user_id=user_id,
-                session_type="Voice Auth",
-                verification_status="success" if is_match else "failed",
-                # Add other columns if your DB model requires them
+                coercion_detected=not is_secure,
+                expected_challenge=expected_str,
+                transcribed_text=str(asr_transcription),
+                liveness_passed=liveness_passed,
+                biometric_score=float(ai_similarity_score),
+                status=audit_status,
             )
             db.add(new_log)
             db.commit()
@@ -579,26 +661,88 @@ async def verify_voice(
     finally:
         for f in temp_files: cleanup_temp_file(f)
 
+# --- SUPER ADMIN CNIC (with or without dashes) ---
+SUPER_ADMIN_CNIC = "0000000000000"
+
+def _normalize_cnic(raw: str) -> str:
+    """Strip dashes so '00000-0000000-0' becomes '0000000000000'."""
+    return raw.replace("-", "").replace(" ", "").strip()
+
+def _is_super_admin(user_id: str) -> bool:
+    return _normalize_cnic(user_id) == SUPER_ADMIN_CNIC
+
 @app.get("/authenticate/sessions")
-async def get_real_sessions(db: Session = Depends(get_db)):
-    """Fetches the actual session history from the database."""
+async def get_real_sessions(
+    user_id: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Fetches the actual session history from the database.
+    Super Admin (CNIC 0000000000000) sees ALL logs; others see only their own."""
     try:
-        # Fetch the 10 most recent sessions
-        logs = db.query(AuditLog).order_by(desc(AuditLog.id)).limit(10).all()
+        query = db.query(AuditLog).order_by(desc(AuditLog.id))
+        
+        if user_id and _is_super_admin(user_id):
+            # Super admin: no filter, return all
+            logs = query.limit(50).all()
+        elif user_id:
+            logs = query.filter(AuditLog.user_id == _normalize_cnic(user_id)).limit(20).all()
+        else:
+            logs = query.limit(10).all()
         
         sessions_data = []
         for log in logs:
             sessions_data.append({
                 "id": str(log.id),
-                "session_type": log.session_type or "VOICE AUTH",
-                "session_timestamp": getattr(log, "created_at", datetime.datetime.now()).isoformat(),
-                "verification_status": getattr(log, "verification_status", "success")
+                "user_id": log.user_id,
+                "session_type": "VOICE AUTH",
+                "session_timestamp": log.attempt_time.isoformat() if log.attempt_time else datetime.datetime.now().isoformat(),
+                "status": log.status,
+                "biometric_score": log.biometric_score,
+                "liveness_passed": log.liveness_passed,
+                "coercion_detected": log.coercion_detected,
             })
             
         return {"sessions": sessions_data}
     except Exception as e:
         print(f"Failed to fetch sessions: {e}")
         return {"sessions": []}
+
+
+@app.get("/enrollments")
+async def get_enrollments(
+    user_id: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Returns enrolled profiles.
+    Super Admin sees ALL enrollments (joined with User); standard user sees only their own."""
+    try:
+        query = db.query(Enrollment, User).join(User, Enrollment.user_id == User.user_id)
+        
+        if user_id and _is_super_admin(user_id):
+            results = query.order_by(Enrollment.id.desc()).all()
+        elif user_id:
+            results = query.filter(Enrollment.user_id == _normalize_cnic(user_id)).all()
+        else:
+            results = query.order_by(Enrollment.id.desc()).all()
+
+        enrollments_data = []
+        for enrollment, user in results:
+            enrollments_data.append({
+                "user_id": enrollment.user_id,
+                "full_name": user.full_name,
+                "phone_number": user.phone_number,
+                "network_operator": user.network_operator,
+                "enrolled_at": enrollment.created_at.isoformat() if enrollment.created_at else None,
+                "audio_quality_snr": enrollment.audio_quality_snr,
+                "status": enrollment.status or "ACTIVE",
+                "embedding_dim": enrollment.embedding_dim,
+            })
+
+        return {"enrollments": enrollments_data}
+    except Exception as e:
+        print(f"Failed to fetch enrollments: {e}")
+        return {"enrollments": []}
+
     
 @app.get("/transactions")
 async def get_mock_transactions():
@@ -612,4 +756,4 @@ async def get_mock_enrollment():
         "is_enrolled": True, 
         "enrollment_date": datetime.datetime.now().isoformat(), 
         "confidence_score": 0.99
-    }}
+    }}

@@ -15,7 +15,7 @@ load_dotenv(env_path)
 
 # --- IMPORT YOUR MODELS ---
 from src.database import Base
-from src.models import User, Enrollment, AuditLog
+from src.models import User, Enrollment, AuditLog, EnterpriseAPI
 
 config = context.config
 

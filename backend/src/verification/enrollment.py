@@ -65,10 +65,11 @@ class EnrollmentManager:
         save_path = os.path.join(self.enrollment_dir, f"{user_id}_baseline.pt")
         torch.save(master_template, save_path)
         print(f"✅ [SUCCESS] Multi-Template saved securely to: {save_path}")
-        return True
         
         if os.path.exists("temp_enr_noisy.wav"):
             os.remove("temp_enr_noisy.wav")
+        
+        return True
 
 if __name__ == "__main__":
     FINETUNED_MODEL_PATH = "models/best_urdu_triplet_ecapa.pth"
