@@ -180,27 +180,11 @@ npm install
 npm run dev
 ```
 
-### 4. Database Setup (Docker)
 
-Spin up the PostgreSQL database in the background using Docker. This exposes the database on port `5432`.
-
-```bash
-docker run --name awaaz-db \
-  -e POSTGRES_USER=admin \
-  -e POSTGRES_PASSWORD=secret \
-  -e POSTGRES_DB=awaazonboard \
-  -p 5432:5432 \
-  -d postgres:16
-```
 
 
 
 
 ---
 
-## 🗺️ Roadmap
 
-- [ ] Real-time streaming inference
-- [ ] Edge / mobile deployment optimization
-- [ ] Advanced anti-spoofing (deepfake audio detection)
-- [ ] Batch inference optimization (GPU)
