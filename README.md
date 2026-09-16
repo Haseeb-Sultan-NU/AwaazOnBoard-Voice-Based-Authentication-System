@@ -166,6 +166,36 @@ alembic upgrade head
 uvicorn main:app --reload --port 8000
 ```
 
+### 3. Start the Enterprise Frontend (Next.js)
+
+Open a **new, separate terminal window**, navigate to the `frontend` directory, and boot up the UI.
+
+```bash
+cd frontend
+
+# Install Node dependencies
+npm install
+
+# Start the Next.js development server
+npm run dev
+```
+
+### 4. Database Setup (Docker)
+
+Spin up the PostgreSQL database in the background using Docker. This exposes the database on port `5432`.
+
+```bash
+docker run --name awaaz-db \
+  -e POSTGRES_USER=admin \
+  -e POSTGRES_PASSWORD=secret \
+  -e POSTGRES_DB=awaazonboard \
+  -p 5432:5432 \
+  -d postgres:16
+```
+
+
+
+
 ---
 
 ## 🗺️ Roadmap
