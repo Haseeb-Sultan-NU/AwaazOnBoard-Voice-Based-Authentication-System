@@ -1,18 +1,25 @@
-
-venv/
+# --- ROOT & SECRETS ---
 .env
+.DS_Store
+
+# --- BACKEND DIRECTORIES ---
+backend/venv/
+backend/env/
+backend/__pycache__/
 __pycache__/
-pretrained_models/
+backend/data/
+backend/tmp_model/
+backend/pretrained_models/
+backend/models/
+
+# --- BACKEND FILE EXTENSIONS ---
 *.wav
-
-# Datasets and manifest files
-data/
-
-# Pre-trained and fine-tuned model weights
-tmp_model/
-models/
 *.pth
 *.ckpt
 *.yaml
+*.onnx
 
-models/
+# --- FRONTEND DIRECTORIES ---
+frontend/node_modules/
+frontend/build/
+frontend/.env
