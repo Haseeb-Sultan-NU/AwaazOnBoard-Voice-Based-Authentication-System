@@ -126,13 +126,44 @@ real-time-speaker-verification-ecapa/
 
 ---
 
-## ⚙️ Quick Start
+## Quick Start
+
+This system is built with a decoupled architecture. You will need to run the FastAPI machine learning backend and the Next.js enterprise frontend simultaneously.
+
+### Prerequisites
+* **Python 3.9+** (For the PyTorch/FastAPI backend)
+* **Node.js 18+** (For the Next.js 15 frontend)
+* **PostgreSQL** (Ensure your database connection string is set up in your backend `.env` file)
+
+### 1. Clone the Repository
+```bash
+git clone [https://github.com/Haseeb-Sultan-NU/real-time-speaker-verification-ecapa.git](https://github.com/Haseeb-Sultan-NU/real-time-speaker-verification-ecapa.git)
+cd real-time-speaker-verification-ecapa
+```
+
+### 2. Start the AI Backend (FastAPI)
+
+Open your terminal, navigate to the `backend` directory, and initialize the pipeline. 
 
 ```bash
-git clone https://github.com/Haseeb-Sultan-NU/real-time-speaker-verification-ecapa.git
-cd real-time-speaker-verification-ecapa
+cd backend
+
+# Create a virtual environment
+python -m venv venv
+
+# Activate the virtual environment (Windows / Git Bash)
+source venv/Scripts/activate  
+# Or activate (Mac / Linux)
+# source venv/bin/activate
+
+# Install the required Python packages
 pip install -r requirements.txt
-python inference/run_inference.py --input sample.wav
+
+# Run database migrations to set up the enterprise schema
+alembic upgrade head
+
+# Start the FastAPI server
+uvicorn main:app --reload --port 8000
 ```
 
 ---
