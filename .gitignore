@@ -11,6 +11,7 @@ backend/data/
 backend/tmp_model/
 backend/pretrained_models/
 backend/models/
+backend/demo_memory.db
 
 # --- BACKEND FILE EXTENSIONS ---
 *.wav

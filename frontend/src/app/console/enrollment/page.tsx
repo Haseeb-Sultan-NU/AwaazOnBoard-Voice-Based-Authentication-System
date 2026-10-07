@@ -19,6 +19,7 @@ import {
   Users,
   Shield,
   CreditCard,
+  User,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -47,6 +48,7 @@ interface Profile {
   audio_quality_snr: number | null;
   status: string;
   embedding_dim: number | null;
+  type: "admin" | "customer";
 }
 
 /* ── Component ──────────────────────────────────────────────── */
@@ -61,6 +63,7 @@ export default function EnrollmentPage() {
   // Step 1 — SIM
   const [cnic, setCnic] = useState("");
   const [cnicError, setCnicError] = useState("");
+  const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [operator, setOperator] = useState("");
   const [imei, setImei] = useState("");
@@ -228,7 +231,18 @@ export default function EnrollmentPage() {
     async function submitEnrollment() {
       try {
         const formData = new FormData();
-        formData.append("user_id", cnic.replace(/\D/g, ""));
+        formData.append("customer_cnic", cnic.replace(/\D/g, ""));
+        formData.append("customer_name", customerName.trim());
+
+        // Bind customer to the current logged-in admin
+        try {
+          const stored = localStorage.getItem("awaaz_user");
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            const adminId = parsed?.cnic || parsed?.user_id || "";
+            if (adminId) formData.append("admin_user_id", adminId);
+          }
+        } catch { /* no-op */ }
 
         recordedBlobs.forEach((blob, idx) => {
           formData.append(
@@ -240,8 +254,10 @@ export default function EnrollmentPage() {
 
         // Append optional SIM info if provided
         if (phone) formData.append("phone_number", phone);
+        if (operator) formData.append("network_operator", operator);
+        if (imei) formData.append("imei", imei);
 
-        const res = await fetch("/api/enroll", {
+        const res = await fetch("/api/customers/enroll", {
           method: "POST",
           body: formData,
         });
@@ -301,13 +317,28 @@ export default function EnrollmentPage() {
 
   const filteredProfiles = useMemo(() =>
     profiles.filter((p) =>
-      p.user_id.replace(/-/g, "").includes(searchQuery.replace(/-/g, ""))
+      (p.user_id ?? "").replace(/-/g, "").includes(searchQuery.replace(/-/g, ""))
     ),
     [profiles, searchQuery]
   );
 
-  const deleteProfile = (userId: string) => {
-    setProfiles((prev) => prev.filter((p) => p.user_id !== userId));
+  const deleteProfile = async (userId: string) => {
+    if (!confirm("Permanently delete this customer's voice enrollment? This cannot be undone.")) return;
+
+    try {
+      const res = await fetch(`/api/customers/enroll?customer_cnic=${encodeURIComponent(userId)}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Delete failed (HTTP ${res.status})`);
+      }
+
+      setProfiles((prev) => prev.filter((p) => p.user_id !== userId));
+    } catch (err) {
+      alert((err as Error).message);
+    }
   };
 
   /* ── Render ──────────────────────────────────────────────── */
@@ -317,7 +348,7 @@ export default function EnrollmentPage() {
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-white">Voice Enrollment</h1>
-        <p className="mt-1.5 text-sm text-neutral-500">Register your voice as a biometric identity</p>
+        <p className="mt-1.5 text-sm text-neutral-500">Enroll external customers&apos; voice biometrics</p>
       </div>
 
       {/* ── Tab Toggle ─────────────────────────────────────── */}
@@ -373,10 +404,10 @@ export default function EnrollmentPage() {
           {/* ── STEP 1 — SIM REGISTRATION ───────────────────── */}
           {currentStep === 1 && (
             <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-6 sm:p-8">
-              {/* CNIC (Required) */}
-              <div className="mb-6">
+              {/* Customer CNIC (Required) */}
+              <div className="mb-5">
                 <label htmlFor="cnic" className="mb-2 block text-xs font-medium uppercase tracking-wider text-neutral-500">
-                  CNIC Number <span className="text-red-400">*</span>
+                  Customer CNIC <span className="text-red-400">*</span>
                   <span className="ml-2 text-[10px] normal-case tracking-normal text-neutral-600">13 digits, no dashes</span>
                 </label>
                 <div className="relative">
@@ -397,9 +428,26 @@ export default function EnrollmentPage() {
                 )}
               </div>
 
-              {/* Skip Button */}
+              {/* Customer Full Name (Required) */}
+              <div className="mb-6">
+                <label htmlFor="customerName" className="mb-2 block text-xs font-medium uppercase tracking-wider text-neutral-500">
+                  Customer Full Name <span className="text-red-400">*</span>
+                </label>
+                <div className="relative">
+                  <User className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-600" />
+                  <input
+                    id="customerName" type="text" placeholder="Muhammad Ali" value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    className="w-full rounded-lg border border-neutral-800 bg-black px-4 py-3 pl-11 text-sm text-white transition-all placeholder:text-neutral-600 focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Skip SIM Details Button */}
               <button type="button" onClick={handleSkip}
-                className="group mb-8 flex w-full items-center justify-center gap-3 rounded-xl bg-orange-500 px-6 py-4 text-sm font-bold text-white transition-all hover:bg-orange-400 hover:shadow-[0_0_24px_rgba(249,115,22,0.25)]">
+                disabled={!customerName.trim()}
+                className="group mb-8 flex w-full items-center justify-center gap-3 rounded-xl bg-orange-500 px-6 py-4 text-sm font-bold text-white transition-all hover:bg-orange-400 hover:shadow-[0_0_24px_rgba(249,115,22,0.25)] disabled:opacity-50 disabled:cursor-not-allowed">
                 <AlertTriangle className="h-5 w-5" /> Skip — Do Not Link SIM
               </button>
 
@@ -568,9 +616,9 @@ export default function EnrollmentPage() {
                 </div>
                 <div className="pointer-events-none absolute -inset-4 rounded-full bg-green-500/10 blur-xl" />
               </div>
-              <h2 className="text-xl font-bold text-white">Biometric Voiceprint Enrolled</h2>
+              <h2 className="text-xl font-bold text-white">Customer Voice Enrolled</h2>
               <p className="mt-2 max-w-sm text-center text-sm text-neutral-500">
-                Your voice identity has been registered and linked to your profile. You can now authenticate using voice biometrics.
+                The customer&apos;s voice identity has been registered. They can now be authenticated using voice biometrics.
               </p>
               <div className="mt-6 flex gap-6">
                 <div className="text-center"><p className="text-lg font-bold text-green-400">{TOTAL_TAKES}</p><p className="text-[10px] uppercase tracking-wider text-neutral-600">Samples</p></div>
@@ -598,7 +646,7 @@ export default function EnrollmentPage() {
               <input type="text" placeholder="Search by CNIC..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-lg border border-neutral-800 bg-black px-4 py-2.5 pl-11 text-sm text-white transition-all placeholder:text-neutral-600 focus:border-green-500/50 focus:ring-1 focus:ring-green-500/20" />
             </div>
-            <button onClick={() => { setActiveTab("enroll"); setCurrentStep(1); setRecordedBlobs([]); setRecordingTake(1); setCnic(""); setCnicError(""); }}
+            <button onClick={() => { setActiveTab("enroll"); setCurrentStep(1); setRecordedBlobs([]); setRecordingTake(1); setCnic(""); setCustomerName(""); setCnicError(""); }}
               className="inline-flex items-center gap-2 rounded-lg bg-green-500 px-4 py-2.5 text-sm font-semibold text-black transition-all hover:bg-green-400 hover:shadow-[0_0_20px_rgba(34,197,94,0.25)]">
               <UserPlus className="h-4 w-4" /> Enroll New Voice
             </button>
@@ -610,6 +658,7 @@ export default function EnrollmentPage() {
               <thead>
                 <tr className="border-b border-neutral-800">
                   <th className="pb-3 pr-6 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">CNIC</th>
+                  <th className="pb-3 pr-6 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Role</th>
                   <th className="pb-3 pr-6 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Phone / Operator</th>
                   <th className="pb-3 pr-6 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Enrollment Date</th>
                   <th className="pb-3 pr-6 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Biometric Quality</th>
@@ -620,7 +669,7 @@ export default function EnrollmentPage() {
               <tbody>
                 {profilesLoading ? (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center">
+                    <td colSpan={7} className="py-12 text-center">
                       <div className="inline-flex items-center gap-2 text-sm text-neutral-500">
                         <div className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-700 border-t-green-500" />
                         Loading enrollments...
@@ -629,30 +678,43 @@ export default function EnrollmentPage() {
                   </tr>
                 ) : profilesError ? (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center">
+                    <td colSpan={7} className="py-12 text-center">
                       <p className="text-sm text-red-400">{profilesError}</p>
                       <button onClick={() => setActiveTab("profiles")} className="mt-2 text-xs text-neutral-500 underline hover:text-white">Retry</button>
                     </td>
                   </tr>
                 ) : filteredProfiles.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-sm text-neutral-600">
+                    <td colSpan={7} className="py-12 text-center text-sm text-neutral-600">
                       {searchQuery ? <>No profiles found matching &quot;{searchQuery}&quot;</> : "No enrolled profiles yet"}
                     </td>
                   </tr>
                 ) : (
                   filteredProfiles.map((p) => (
-                    <tr key={p.user_id} className="border-b border-neutral-800/50 transition-colors hover:bg-neutral-800/30">
+                    <tr key={`${p.type}-${p.user_id}`} className="border-b border-neutral-800/50 transition-colors hover:bg-neutral-800/30">
                       <td className="py-4 pr-6">
                         <div className="flex items-center gap-2.5">
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-800/50">
-                            <Shield className="h-3.5 w-3.5 text-green-500" />
+                          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-neutral-800/50 ${
+                            p.type === "customer" ? "border-purple-500/30" : "border-cyan-500/30"
+                          }`}>
+                            <Shield className={`h-3.5 w-3.5 ${p.type === "customer" ? "text-purple-400" : "text-cyan-400"}`} />
                           </div>
                           <div>
                             <span className="font-mono text-sm text-white">{p.user_id}</span>
                             {p.full_name && <p className="text-[11px] text-neutral-500">{p.full_name}</p>}
                           </div>
                         </div>
+                      </td>
+                      <td className="py-4 pr-6">
+                        {p.type === "customer" ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-purple-500/30 bg-purple-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-purple-400">
+                            Customer
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-cyan-400">
+                            Manager
+                          </span>
+                        )}
                       </td>
                       <td className="py-4 pr-6">
                         {p.phone_number ? (

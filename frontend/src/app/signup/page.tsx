@@ -3,7 +3,20 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Shield, User, CreditCard, Mail, Lock, ArrowRight, Loader2 } from "lucide-react";
+import { Shield, User, CreditCard, Mail, Lock, ArrowRight, Loader2, AlertCircle, Eye, EyeOff } from "lucide-react";
+
+/* ── CNIC Helpers ──────────────────────────────────────────── */
+
+function formatCnicInput(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 13);
+  if (digits.length <= 5) return digits;
+  if (digits.length <= 12) return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+  return `${digits.slice(0, 5)}-${digits.slice(5, 12)}-${digits.slice(12)}`;
+}
+
+function extractCnicDigits(formatted: string): string {
+  return formatted.replace(/\D/g, "");
+}
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -12,59 +25,85 @@ export default function SignUpPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+
+  const handleCnicChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setCnic(formatCnicInput(e.target.value));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError("");
+
+    // Client-side CNIC validation
+    const digits = extractCnicDigits(cnic);
+    if (digits.length !== 13) {
+      setError("CNIC must be exactly 13 digits (e.g. 12345-1234567-1).");
+      return;
+    }
+
+    // Client-side password validation
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+
     setIsLoading(true);
 
-    // Attempt real backend signup; fall through to mock on failure
     try {
       const res = await fetch("/api/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           full_name: fullName,
-          cnic,
+          cnic: digits,
           phone_number: "",
+          email: email.trim() || null,
           password,
         }),
       });
 
-      if (res.ok) {
-        // Auto-login after successful signup
-        const loginRes = await fetch("/api/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cnic, password }),
-        });
+      const data = await res.json();
 
-        if (loginRes.ok) {
-          const data = await loginRes.json();
-          localStorage.setItem("awaaz_user", JSON.stringify(data));
-          router.push("/console");
-          return;
-        }
+      if (!res.ok) {
+        setError(data.detail || "Signup failed.");
+        setIsLoading(false);
+        return;
       }
+
+      // Auto-login after successful signup
+      const loginRes = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cnic: digits, password }),
+      });
+
+      if (loginRes.ok) {
+        const loginData = await loginRes.json();
+        // Store non-sensitive display data only (auth credential is in HttpOnly cookie)
+        localStorage.setItem(
+          "awaaz_user",
+          JSON.stringify({
+            user_id: loginData.user_id,
+            cnic: loginData.cnic,
+            full_name: loginData.full_name,
+            is_enrolled: loginData.is_enrolled,
+          })
+        );
+        router.push("/console");
+        return;
+      }
+
+      // Signup succeeded but auto-login failed — redirect to login page
+      router.push("/login");
     } catch {
-      // Backend unreachable — continue to mock session
+      setError(
+        "Authentication service is temporarily unavailable. Please try again."
+      );
+    } finally {
+      setIsLoading(false);
     }
-
-    // Mock session
-    const strippedCnic = cnic.replace(/\D/g, "") || "4230115693921";
-    const isAdmin = strippedCnic === "0000000000000";
-    const mockUser = {
-      status: "success",
-      user_id: strippedCnic,
-      cnic: strippedCnic,
-      full_name: fullName || (isAdmin ? "Admin" : "Enterprise User"),
-      token: "demo-token",
-      is_enrolled: false,
-    };
-    localStorage.setItem("awaaz_user", JSON.stringify(mockUser));
-
-    await new Promise((r) => setTimeout(r, 600));
-    setIsLoading(false);
-    router.push("/console");
   };
 
   return (
@@ -89,6 +128,14 @@ export default function SignUpPage() {
               Register with your CNIC to get started
             </p>
           </div>
+
+          {/* Error Banner */}
+          {error && (
+            <div className="mb-5 flex items-start gap-3 rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
+              <p className="text-sm text-red-400">{error}</p>
+            </div>
+          )}
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -120,16 +167,16 @@ export default function SignUpPage() {
                 htmlFor="cnic"
                 className="mb-2 block text-xs font-medium uppercase tracking-wider text-neutral-500"
               >
-                CNIC Number (13 digits, no dashes)
+                CNIC Number
               </label>
               <div className="relative">
                 <CreditCard className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-600" />
                 <input
                   id="cnic"
                   type="text"
-                  placeholder="1234567890123"
+                  placeholder="12345-1234567-1"
                   value={cnic}
-                  onChange={(e) => setCnic(e.target.value)}
+                  onChange={handleCnicChange}
                   className="w-full rounded-lg border border-neutral-800 bg-black px-4 py-3 pl-11 text-sm text-white transition-all placeholder:text-neutral-600 focus:border-green-500/50 focus:ring-1 focus:ring-green-500/20"
                   required
                 />
@@ -153,7 +200,6 @@ export default function SignUpPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full rounded-lg border border-neutral-800 bg-black px-4 py-3 pl-11 text-sm text-white transition-all placeholder:text-neutral-600 focus:border-green-500/50 focus:ring-1 focus:ring-green-500/20"
-                  required
                 />
               </div>
             </div>
@@ -164,19 +210,28 @@ export default function SignUpPage() {
                 htmlFor="password"
                 className="mb-2 block text-xs font-medium uppercase tracking-wider text-neutral-500"
               >
-                Password
+                Password (min. 8 characters)
               </label>
               <div className="relative">
                 <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-600" />
                 <input
                   id="password"
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   placeholder="••••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded-lg border border-neutral-800 bg-black px-4 py-3 pl-11 text-sm text-white transition-all placeholder:text-neutral-600 focus:border-green-500/50 focus:ring-1 focus:ring-green-500/20"
+                  className="w-full rounded-lg border border-neutral-800 bg-black px-4 py-3 pl-11 pr-11 text-sm text-white transition-all placeholder:text-neutral-600 focus:border-green-500/50 focus:ring-1 focus:ring-green-500/20"
                   required
+                  minLength={8}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
               </div>
             </div>
 

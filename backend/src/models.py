@@ -126,3 +126,76 @@ class EnterpriseAPI(Base):
     total_calls = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ═══════════════════════════════════════════════════════════════
+# CUSTOMER — B2B End-Users (No Dashboard Credentials)
+# ═══════════════════════════════════════════════════════════════
+
+class Customer(Base):
+    __tablename__ = "customers"
+
+    # --- Core Identity ---
+    customer_id = Column(String, primary_key=True, index=True)       # Set to normalized CNIC
+    cnic = Column(String(15), unique=True, index=True, nullable=False)
+    full_name = Column(String(120), nullable=True)
+
+    # --- Telephony / SIM Metadata ---
+    phone_number = Column(String(15), nullable=True)
+    network_operator = Column(String(20), nullable=True)
+    imei = Column(String(20), nullable=True)
+
+    # --- Linked Admin (who enrolled this customer) ---
+    admin_user_id = Column(String, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
+
+    # --- Timestamps ---
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # --- Relationships ---
+    enrollment = relationship("CustomerEnrollment", back_populates="customer", uselist=False, cascade="all, delete-orphan")
+    admin = relationship("User", foreign_keys=[admin_user_id])
+
+
+# ═══════════════════════════════════════════════════════════════
+# CUSTOMER ENROLLMENT — Biometric Template for End-Users
+# ═══════════════════════════════════════════════════════════════
+
+class CustomerEnrollment(Base):
+    __tablename__ = "customer_enrollments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_id = Column(String, ForeignKey("customers.customer_id", ondelete="CASCADE"), unique=True, nullable=False)
+
+    # --- Biometric Template ---
+    template_uri = Column(String, nullable=False)
+    embedding_dim = Column(Integer, default=192)
+    audio_quality_snr = Column(Float, nullable=True)
+
+    # --- Lifecycle ---
+    status = Column(String(20), default="ACTIVE")
+
+    # --- Timestamps ---
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # --- Relationships ---
+    customer = relationship("Customer", back_populates="enrollment")
+
+
+# ═══════════════════════════════════════════════════════════════
+# AUTH LOG — Lightweight PASS/FAIL counter for dashboard metrics
+# ═══════════════════════════════════════════════════════════════
+
+class AuthLog(Base):
+    __tablename__ = "auth_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, index=True, nullable=False)
+    cnic = Column(String, nullable=False, index=True)
+    status = Column(String(10), nullable=False, index=True)          # PASS | FAIL
+    liveness_score = Column(Float, nullable=True)                    # 0.0–1.0 (ASR liveness confidence)
+    match_confidence = Column(Float, nullable=True)                  # 0.0–1.0 (ECAPA UX-calibrated score)
+    failure_reason = Column(String, nullable=True)                   # None on PASS
+    latency_ms = Column(Integer, nullable=False)                     # End-to-end request duration
+    timestamp = Column(DateTime(timezone=True), default=func.now(), server_default=func.now())

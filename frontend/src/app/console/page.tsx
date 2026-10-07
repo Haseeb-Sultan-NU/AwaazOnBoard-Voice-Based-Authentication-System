@@ -5,9 +5,9 @@ import Link from "next/link";
 import {
   AlertTriangle,
   Activity,
-  ShieldCheck,
-  CreditCard,
-  TrendingUp,
+  ShieldAlert,
+  ScanLine,
+  Users,
   Mic,
   Fingerprint,
   ArrowRight,
@@ -41,6 +41,10 @@ export default function ConsoleDashboardPage() {
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [isEnrolled, setIsEnrolled] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [totalEnrollments, setTotalEnrollments] = useState(0);
+  const [verificationAttempts, setVerificationAttempts] = useState(0);
+  const [threatsBlocked, setThreatsBlocked] = useState(0);
+  const [activeSessions, setActiveSessions] = useState(0);
   const [user, setUser] = useState<AwaazUser | null>(null);
 
   /* Read user from localStorage (hydration-safe) */
@@ -86,22 +90,24 @@ export default function ConsoleDashboardPage() {
         // Backend offline
       }
 
+      try {
+        const statsRes = await fetch(`/api/dashboard/stats?user_id=${encodeURIComponent(currentCnic)}`);
+        if (statsRes.ok) {
+          const data = await statsRes.json();
+          setVerificationAttempts(data.verification_attempts ?? 0);
+          setThreatsBlocked(data.threats_blocked ?? 0);
+          setActiveSessions(data.active_sessions ?? 0);
+          setTotalEnrollments(data.total_enrollments ?? 0);
+        }
+      } catch {
+        // Backend offline
+      }
+
       setLoading(false);
     }
 
     fetchDashboardData();
   }, [currentCnic]);
-
-  /* ── Derived Stats ─────────────────────────────────────── */
-
-  const totalSessions = sessions.length;
-  const successfulAuth = sessions.filter(
-    (s) => s.status === "GRANTED"
-  ).length;
-  const successRate =
-    totalSessions > 0
-      ? `${Math.round((successfulAuth / totalSessions) * 100)}%`
-      : "N/A";
 
   return (
     <div className="p-8 lg:p-10">
@@ -151,24 +157,24 @@ export default function ConsoleDashboardPage() {
       {/* ── Stats Grid ───────────────────────────────────────── */}
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
+          icon={<ScanLine className="h-5 w-5" />}
+          label="Verification Attempts"
+          value={loading ? "—" : String(verificationAttempts)}
+        />
+        <StatCard
+          icon={<ShieldAlert className="h-5 w-5" />}
+          label="Threats Blocked"
+          value={loading ? "—" : String(threatsBlocked)}
+        />
+        <StatCard
+          icon={<Users className="h-5 w-5" />}
+          label="Enrolled Profiles"
+          value={loading ? "—" : String(totalEnrollments)}
+        />
+        <StatCard
           icon={<Activity className="h-5 w-5" />}
-          label="Total Sessions"
-          value={loading ? "—" : String(totalSessions)}
-        />
-        <StatCard
-          icon={<ShieldCheck className="h-5 w-5" />}
-          label="Successful Auth"
-          value={loading ? "—" : String(successfulAuth)}
-        />
-        <StatCard
-          icon={<CreditCard className="h-5 w-5" />}
-          label="Transactions"
-          value="0"
-        />
-        <StatCard
-          icon={<TrendingUp className="h-5 w-5" />}
-          label="Success Rate"
-          value={loading ? "—" : successRate}
+          label="Active Sessions"
+          value={loading ? "—" : String(activeSessions)}
         />
       </div>
 
@@ -192,12 +198,7 @@ export default function ConsoleDashboardPage() {
               title="Authenticate"
               description="Verify your identity using voice biometric challenge"
             />
-            <ActionCard
-              href="/console/transactions"
-              icon={<CreditCard className="h-5 w-5" />}
-              title="Transactions"
-              description="View and manage your authenticated transaction history"
-            />
+
           </div>
         </div>
 

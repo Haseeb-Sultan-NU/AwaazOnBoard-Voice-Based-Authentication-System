@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
-  Shield,
   LayoutDashboard,
   Mic,
+  Fingerprint,
   Code2,
   ScrollText,
   LogOut,
@@ -23,6 +24,7 @@ interface AwaazUser {
 const navItems = [
   { label: "Dashboard", href: "/console", icon: LayoutDashboard },
   { label: "Voice Enrollment", href: "/console/enrollment", icon: Mic },
+  { label: "Authenticate", href: "/console/authenticate", icon: Fingerprint },
   { label: "API Management", href: "/console/api-management", icon: Code2 },
   { label: "Logs", href: "/console/logs", icon: ScrollText },
   { label: "Account Settings", href: "/console/settings", icon: Settings },
@@ -59,7 +61,12 @@ export default function ConsoleLayout({
     return `${digits.slice(0, 5)}-${digits.slice(5, 12)}-${digits.slice(12)}`;
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/logout", { method: "POST" });
+    } catch {
+      // Still clear local state even if backend is unreachable
+    }
     localStorage.removeItem("awaaz_user");
     router.push("/login");
   };
@@ -69,10 +76,15 @@ export default function ConsoleLayout({
       {/* ── Sidebar ─────────────────────────────────────────── */}
       <aside className="flex w-[280px] shrink-0 flex-col border-r border-neutral-800 bg-[#0a0a0a]">
         {/* Logo */}
-        <div className="flex items-center gap-2.5 border-b border-neutral-800/60 px-6 py-5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500/10 border border-green-500/20">
-            <Shield className="h-4 w-4 text-green-500" />
-          </div>
+        <div className="flex items-center gap-3 border-b border-neutral-800/60 px-6 py-[18px]">
+          <Image
+            src="/logo.png"
+            alt="AwaazOnboard Logo"
+            width={32}
+            height={64}
+            className="h-10 w-auto object-contain"
+            priority
+          />
           <span className="text-xs font-semibold tracking-[0.2em] text-neutral-300 uppercase">
             AwaazOnboard
           </span>
@@ -94,18 +106,16 @@ export default function ConsoleLayout({
                 <li key={item.href}>
                   <Link
                     href={item.href}
-                    className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
-                      isActive
-                        ? "bg-green-500/10 text-green-400"
-                        : "text-neutral-500 hover:bg-neutral-800/50 hover:text-neutral-300"
-                    }`}
+                    className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${isActive
+                      ? "bg-green-500/10 text-green-400"
+                      : "text-neutral-500 hover:bg-neutral-800/50 hover:text-neutral-300"
+                      }`}
                   >
                     <Icon
-                      className={`h-4 w-4 shrink-0 ${
-                        isActive
-                          ? "text-green-400"
-                          : "text-neutral-600 group-hover:text-neutral-400"
-                      }`}
+                      className={`h-4 w-4 shrink-0 ${isActive
+                        ? "text-green-400"
+                        : "text-neutral-600 group-hover:text-neutral-400"
+                        }`}
                     />
                     <span className="flex-1">{item.label}</span>
                     {isActive && (
