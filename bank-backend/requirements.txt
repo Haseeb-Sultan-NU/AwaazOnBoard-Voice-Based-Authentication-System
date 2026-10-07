@@ -1,0 +1,26 @@
+# FinSecure Bank API (bank-backend/) — Python 3.11
+# Versions match backend/requirements.txt so both services can share backend/venv
+# (they load the same Whisper checkpoint from ~/.cache/whisper/small.pt).
+#
+# System requirement: ffmpeg on PATH (Whisper decodes non-WAV uploads through it).
+# Start the Awaaz backend once first: it downloads small.pt, which this service
+# reads but never downloads itself.
+#
+#   pip install -r requirements.txt
+#   uvicorn bank_main:app --host 0.0.0.0 --port 8001 --reload
+
+# --- API server ---
+fastapi==0.109.0
+uvicorn==0.27.0
+python-multipart==0.0.9       # Form/File uploads
+
+# --- Database & HTTP ---
+SQLAlchemy==2.0.49            # local SQLite ledger (bank_data.db, auto-created and seeded)
+requests==2.33.1              # calls to the Awaaz identity provider on :8000
+
+# --- Urdu voice agent (Whisper ASR) ---
+openai-whisper==20250625
+torch==2.1.0
+torchaudio==2.1.0             # resampling (falls back to NumPy if absent)
+numpy==1.26.4
+soundfile==0.13.1

@@ -165,7 +165,7 @@ async def lifespan(app: FastAPI):
     
     # Load everything into the global dictionary
     models["gatekeeper"] = SecurityGatekeeper(hf_token)
-    models["asr"] = UrduASRInference(model_size="base")
+    models["asr"] = UrduASRInference(model_size="small")  # keep in sync with bank-backend WHISPER_MODEL_SIZE
     models["validator"] = LivenessValidator(pass_threshold=0.80)
     models["ecapa"] = EcapaVerifier(finetuned_weights_path="models/best_urdu_triplet_ecapa.pth")
     models["challenge_gen"] = ChallengeGenerator(prompt_audio_dir="data/audio_digits")
@@ -923,6 +923,11 @@ async def get_challenge():
         "sim_swap_warning": False
     }
 
+# ECAPA-TDNN decision threshold (raw cosine similarity at the evaluated EER point).
+# Shared by /authenticate/verify, /authenticate/continuous and the forensic log API.
+ECAPA_EER_THRESHOLD = 0.2393
+
+
 def _log_auth_attempt(
     db: Session,
     session_id: str,
@@ -1006,7 +1011,10 @@ async def verify_voice(
             final_response = {
                 "authenticated": False,
                 "similarity_score": 0.0,
+                "raw_similarity": None,          # biometric stage never ran
+                "threshold": ECAPA_EER_THRESHOLD,
                 "liveness_score": 0.0,
+                "liveness_passed": False,
                 "risk_score": 0.9,
                 "gatekeeper_score": 0.0,
                 "session_id": session_id,
@@ -1040,7 +1048,7 @@ async def verify_voice(
                 # Gatekeeper failure counts as a blocked threat
                 _log_auth_attempt(
                     db, session_id, user_id, "FAIL", start_time,
-                    failure_reason="Gatekeeper Rejected (Multi-speaker/Silence)",
+                    failure_reason=f"Gatekeeper Rejected: {security_msg}",
                 )
             else:
                 print("[SANDBOX] Gatekeeper short-circuit — DB write skipped.")
@@ -1098,7 +1106,7 @@ async def verify_voice(
             if score > max_score: max_score = float(score)
 
         ai_similarity_score = max_score
-        OPTIMAL_THRESHOLD = 0.2393
+        OPTIMAL_THRESHOLD = ECAPA_EER_THRESHOLD
         is_match = ai_similarity_score >= OPTIMAL_THRESHOLD
 
         if is_match:
@@ -1138,7 +1146,10 @@ async def verify_voice(
         final_response = {
             "authenticated": bool(authenticated),
             "similarity_score": float(ux_score),
+            "raw_similarity": round(float(ai_similarity_score), 4),   # ECAPA cosine
+            "threshold": ECAPA_EER_THRESHOLD,
             "liveness_score": float(liveness_score),
+            "liveness_passed": bool(liveness_passed),
             "risk_score": float(risk),
             "gatekeeper_score": float(gatekeeper_score),
             "session_id": session_id,
@@ -1205,6 +1216,115 @@ async def verify_voice(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         for f in temp_files: cleanup_temp_file(f)
+
+
+@app.post("/authenticate/continuous")
+async def continuous_verify(
+    session_id: str = Form("continuous"),
+    user_id: str = Form(...),  # The CNIC
+    voice: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """Continuous (step-up) authentication for an already signed-in user.
+
+    Runs Gatekeeper -> ECAPA-TDNN on free speech (e.g. a spoken banking command).
+    There is no digit challenge, so active liveness is skipped and no session from
+    /authenticate/challenge is required. Initial login must still use /authenticate/verify.
+    """
+    start_time = time.perf_counter()
+    user_id = _normalize_cnic(user_id)
+    request_id = f"{session_id}:{uuid.uuid4().hex[:8]}"  # unique per call; session_id may be constant
+
+    template_path = f"data/enrollments/{user_id.replace(' ', '_')}_baseline.pt"
+    if not os.path.exists(template_path):
+        raise HTTPException(status_code=404, detail="User biometric template not found.")
+
+    raw_path = f"data/temp/{request_id.replace(':', '_')}_raw"
+    clean_path = f"data/temp/{request_id.replace(':', '_')}_cont.wav"
+    try:
+        with open(raw_path, "wb") as buffer:
+            shutil.copyfileobj(voice.file, buffer)
+        audio = AudioSegment.from_file(raw_path)
+        audio.set_frame_rate(16000).set_channels(1).export(clean_path, format="wav")
+
+        # STEP 0: Gatekeeper (multi-speaker / splicing / no speech)
+        is_secure, security_msg = models["gatekeeper"].check_audio_security(clean_path)
+        if not is_secure:
+            _log_auth_attempt(db, request_id, user_id, "FAIL", start_time,
+                              failure_reason=f"Continuous Auth: Gatekeeper Rejected: {security_msg}")
+            return {
+                "authenticated": False,
+                "mode": "continuous",
+                "similarity_score": 0.0,
+                "raw_similarity": None,
+                "threshold": ECAPA_EER_THRESHOLD,
+                "gatekeeper_score": 0.0,
+                "session_id": session_id,
+                "message": f"Gatekeeper FAIL: {security_msg}",
+            }
+
+        # STEP 1: ECAPA-TDNN match against every stored template
+        try:
+            saved_templates = torch.load(template_path, map_location="cpu", weights_only=False)
+        except Exception:
+            saved_templates = torch.load(template_path, map_location="cpu")
+
+        if isinstance(saved_templates, dict):
+            candidates = list(saved_templates.values())
+        elif isinstance(saved_templates, torch.Tensor):
+            candidates = [saved_templates] if saved_templates.ndim == 1 else list(saved_templates)
+        else:
+            candidates = list(saved_templates)
+
+        templates = []
+        for t in candidates:
+            try:
+                arr = t.detach().cpu().numpy().flatten() if hasattr(t, "detach") else np.array(t).flatten()
+                if arr.shape[0] == 192:
+                    templates.append(arr)
+            except Exception:
+                pass
+        if not templates:
+            raise HTTPException(status_code=500, detail="No valid 192-dim voice prints found.")
+
+        live = np.array(models["ecapa"].extract_embedding(clean_path)).flatten()
+        raw_score = max(
+            float(np.dot(live, t) / (np.linalg.norm(live) * np.linalg.norm(t))) for t in templates
+        )
+
+        OPTIMAL_THRESHOLD = ECAPA_EER_THRESHOLD
+        is_match = raw_score >= OPTIMAL_THRESHOLD
+        if is_match:
+            ux_score = 0.80 + ((raw_score - OPTIMAL_THRESHOLD) / (1.0 - OPTIMAL_THRESHOLD)) * 0.20
+        else:
+            ux_score = ((raw_score + 1.0) / (OPTIMAL_THRESHOLD + 1.0)) * 0.79
+        ux_score = max(0.0, min(1.0, ux_score))
+
+        if is_match:
+            _log_auth_attempt(db, request_id, user_id, "PASS", start_time, match_confidence=float(ux_score))
+        else:
+            _log_auth_attempt(db, request_id, user_id, "FAIL", start_time, match_confidence=float(ux_score),
+                              failure_reason="Continuous Auth: Biometric Mismatch")
+
+        return {
+            "authenticated": bool(is_match),
+            "mode": "continuous",
+            "similarity_score": float(ux_score),
+            "raw_similarity": round(float(raw_score), 4),
+            "threshold": ECAPA_EER_THRESHOLD,
+            "gatekeeper_score": 1.0,
+            "session_id": session_id,
+            "message": "Identity Verified." if is_match else "Biometric FAIL: Voice did not match baseline.",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Continuous Verification Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        for f in (raw_path, clean_path):
+            cleanup_temp_file(f)
 
 # --- SUPER ADMIN CNIC (with or without dashes) ---
 SUPER_ADMIN_CNIC = "0000000000000"
@@ -1368,6 +1488,48 @@ async def get_dashboard_stats(
     }
 
 # Next.js rewrites /api/:path* -> backend /:path*, so expose both paths.
+def _raw_cosine_from_confidence(ux: Optional[float]) -> Optional[float]:
+    """Invert the UX calibration used by the verify routes to recover raw cosine similarity.
+
+    Forward mapping (see /authenticate/verify):
+        match     : ux = 0.80 + (cos - T) / (1 - T) * 0.20      -> ux in [0.80, 1.00]
+        non-match : ux = (cos + 1) / (T + 1) * 0.79             -> ux in [0.00, 0.79]
+    Both branches are linear and disjoint, so the inverse is exact (except where
+    the forward pass clamped at 0.0 / 1.0). No schema change is needed.
+    """
+    if ux is None:
+        return None
+    t = ECAPA_EER_THRESHOLD
+    raw = t + (ux - 0.80) / 0.20 * (1.0 - t) if ux >= 0.80 else ux / 0.79 * (t + 1.0) - 1.0
+    return round(max(-1.0, min(1.0, raw)), 4)
+
+
+def _classify_auth_log(status: Optional[str], reason: Optional[str]) -> tuple[str, Optional[str]]:
+    """(verdict, blocked_stage) for an AuthLog row.
+
+    verdict: PASS | BLOCKED_BIOMETRIC | BLOCKED_LIVENESS | FAIL
+    blocked_stage: gatekeeper | liveness | biometric | None
+    """
+    if (status or "").upper() == "PASS":
+        return "PASS", None
+    r = (reason or "").lower()
+    if any(k in r for k in ("gatekeeper", "replay", "speaker", "silence", "no human speech")):
+        return "BLOCKED_LIVENESS", "gatekeeper"
+    if "liveness" in r or "incorrect digits" in r:
+        return "BLOCKED_LIVENESS", "liveness"
+    if "biometric" in r or "mismatch" in r:
+        return "BLOCKED_BIOMETRIC", "biometric"
+    return "FAIL", None
+
+
+def _auth_channel(session_id: Optional[str], reason: Optional[str]) -> str:
+    """'command' for per-transaction continuous auth (request ids look like
+    'tx_command:ab12cd34'), otherwise 'login' (challenge-response UUID sessions)."""
+    if (session_id and ":" in session_id) or (reason or "").startswith("Continuous Auth"):
+        return "command"
+    return "login"
+
+
 @app.get("/logs")
 @app.get("/api/logs")
 async def get_auth_logs(
@@ -1375,26 +1537,33 @@ async def get_auth_logs(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Returns AuthLog telemetry records visible to the caller, newest first."""
+    """Returns AuthLog telemetry records visible to the caller, newest first,
+    enriched with forensic fields derived from the stored telemetry."""
     secure_id = current_user["cnic"]
     try:
         rows = _scoped_auth_logs(db, secure_id).order_by(desc(AuthLog.timestamp)).all()
-        return {
-            "logs": [
-                {
-                    "id": r.id,
-                    "session_id": r.session_id,
-                    "cnic": r.cnic,
-                    "status": r.status,
-                    "liveness_score": r.liveness_score,
-                    "match_confidence": r.match_confidence,
-                    "failure_reason": r.failure_reason,
-                    "latency_ms": r.latency_ms,
-                    "timestamp": r.timestamp.isoformat() if r.timestamp else None,
-                }
-                for r in rows
-            ]
-        }
+        logs = []
+        for r in rows:
+            verdict, blocked_stage = _classify_auth_log(r.status, r.failure_reason)
+            similarity = _raw_cosine_from_confidence(r.match_confidence)
+            logs.append({
+                "id": r.id,
+                "session_id": r.session_id,
+                "cnic": r.cnic,
+                "status": r.status,
+                "verdict": verdict,
+                "blocked_stage": blocked_stage,
+                "channel": _auth_channel(r.session_id, r.failure_reason),
+                "similarity_score": similarity,               # raw ECAPA cosine
+                "threshold": ECAPA_EER_THRESHOLD,
+                "similarity_margin": round(similarity - ECAPA_EER_THRESHOLD, 4) if similarity is not None else None,
+                "match_confidence": r.match_confidence,       # UX-calibrated 0–1
+                "liveness_score": r.liveness_score,
+                "failure_reason": r.failure_reason,
+                "latency_ms": r.latency_ms,
+                "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+            })
+        return {"logs": logs}
     except Exception as e:
         print(f"[LOGS] Error fetching auth logs: {e}")
         return {"logs": []}

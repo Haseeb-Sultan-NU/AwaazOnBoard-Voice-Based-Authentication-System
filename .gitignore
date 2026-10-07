@@ -1,26 +1,73 @@
-# --- ROOT & SECRETS ---
+# ═══════════════════════════════════════════════════════════════
+# Awaaz / FinSecure monorepo
+#   backend/        Awaaz identity provider (FastAPI)
+#   bank-backend/   FinSecure bank API (FastAPI)
+#   frontend/       Awaaz enterprise console (Next.js)
+#   bank-frontend/  FinSecure banking portal (Next.js)
+# Patterns without a leading "/" apply at every depth.
+# ═══════════════════════════════════════════════════════════════
+
+# --- Secrets & environment ---
 .env
-.DS_Store
+.env.*
+!.env.example
+*.pem
+*.key
 
-# --- BACKEND DIRECTORIES ---
-backend/venv/
-backend/env/
-backend/__pycache__/
+# --- Python ---
+venv/
+.venv/
+env/
 __pycache__/
-backend/data/
-backend/tmp_model/
-backend/pretrained_models/
-backend/models/
-backend/demo_memory.db
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
 
-# --- BACKEND FILE EXTENSIONS ---
-*.wav
+# --- Node / Next.js ---
+node_modules/
+.next/
+out/
+build/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.vercel
+
+# --- Databases (local SQLite stores are recreated & seeded on startup) ---
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# --- Machine-learning weights & model caches ---
+*.pt
 *.pth
+*.bin
+*.safetensors
 *.ckpt
-*.yaml
 *.onnx
+# Whisper / HuggingFace / SpeechBrain caches if mapped inside the repo
+# (defaults live outside it: ~/.cache/whisper, ~/.cache/huggingface)
+.cache/
+whisper_cache/
+pretrained_models/
+tmp_model/
+backend/models/
 
-# --- FRONTEND DIRECTORIES ---
-frontend/node_modules/
-frontend/build/
-frontend/.env
+# --- Runtime data & audio ---
+backend/data/
+backend/audio_cache/
+*.wav
+*.yaml
+*.log
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
