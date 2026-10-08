@@ -45,9 +45,12 @@ from sqlalchemy.orm import sessionmaker, declarative_base, Session
 # CONFIG
 # ═══════════════════════════════════════════════════════════════
 
-AWAAZ_VERIFY_URL = "http://localhost:8000/authenticate/verify"
+# Base URL of the Awaaz identity provider. In Docker Compose this is the service
+# DNS name (http://awaaz-backend:8000); locally it defaults to localhost.
+AWAAZ_API_URL = os.getenv("AWAAZ_API_URL", "http://localhost:8000").rstrip("/")
+AWAAZ_VERIFY_URL = f"{AWAAZ_API_URL}/authenticate/verify"
 # Step-up auth for spoken commands: Gatekeeper + ECAPA-TDNN, no digit challenge.
-AWAAZ_CONTINUOUS_URL = "http://localhost:8000/authenticate/continuous"
+AWAAZ_CONTINUOUS_URL = f"{AWAAZ_API_URL}/authenticate/continuous"
 COMMAND_SESSION_ID = "tx_command"
 AWAAZ_TIMEOUT_SECONDS = 60
 BIOMETRIC_BLOCK_MSG = "Transaction blocked: Biometric voice signature did not match the account owner."
@@ -57,7 +60,10 @@ ECAPA_EER_THRESHOLD = 0.2393  # mirrors backend/main.py; used only when Awaaz om
 HIGH_VALUE_THRESHOLD_PKR = 10_000.0
 CONFIRMATION_TTL_SECONDS = 120
 CONFIRMATION_MAX_ATTEMPTS = 3
-DATABASE_URL = "sqlite:///./bank_data.db"
+# Containers point this at a mounted volume (sqlite:////data/bank_data.db) so the ledger persists.
+DATABASE_URL = os.getenv("BANK_DATABASE_URL", "sqlite:///./bank_data.db")
+# Browser origins allowed to call this API (comma-separated).
+CORS_ORIGINS = [o.strip() for o in os.getenv("BANK_CORS_ORIGINS", "http://localhost:3001,http://127.0.0.1:3001").split(",") if o.strip()]
 
 # Must match backend/main.py -> UrduASRInference(model_size="small").
 # Same checkpoint file (~/.cache/whisper/small.pt), but each process holds its own copy in RAM.
@@ -149,7 +155,7 @@ app = FastAPI(title="FinSecure Bank API", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3001", "http://127.0.0.1:3001"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

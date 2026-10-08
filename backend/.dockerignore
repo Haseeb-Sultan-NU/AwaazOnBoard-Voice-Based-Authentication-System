@@ -1,0 +1,33 @@
+# Local environments & caches
+venv/
+env/
+.venv/
+__pycache__/
+*.py[cod]
+node_modules/
+.next/
+
+# Secrets: runtime config comes from compose, the HF token from a BuildKit secret
+.env
+.env.*
+
+# User biometric data must never be baked into a pushed image (mounted as a volume instead)
+data/enrollments/
+data/temp/
+data/*.zip
+audio_cache/
+
+# Windows symlinks into the host HF cache; the image re-fetches these at build time
+models/pretrained/
+pretrained_models/
+tmp_model/
+
+# Local databases & dev artefacts
+*.db
+*.sqlite
+*.sqlite3
+alembic/__pycache__/
+.git
+.gitignore
+Dockerfile
+.dockerignore

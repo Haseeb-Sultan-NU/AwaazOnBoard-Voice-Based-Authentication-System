@@ -6,6 +6,8 @@
 # Start the Awaaz backend once first: it downloads small.pt, which this service
 # reads but never downloads itself.
 #
+# torch/torchaudio are intentionally NOT listed (see backend/requirements.txt); install first:
+#   pip install torch==2.1.0+cpu torchaudio==2.1.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
 #   pip install -r requirements.txt
 #   uvicorn bank_main:app --host 0.0.0.0 --port 8001 --reload
 
@@ -20,7 +22,5 @@ requests==2.33.1              # calls to the Awaaz identity provider on :8000
 
 # --- Urdu voice agent (Whisper ASR) ---
 openai-whisper==20250625
-torch==2.1.0
-torchaudio==2.1.0             # resampling (falls back to NumPy if absent)
 numpy==1.26.4
 soundfile==0.13.1
