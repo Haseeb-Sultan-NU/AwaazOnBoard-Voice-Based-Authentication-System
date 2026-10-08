@@ -2,14 +2,13 @@
 # Pinned to the versions verified together in backend/venv.
 #
 # System requirement: ffmpeg on PATH (used by pydub and openai-whisper to decode audio).
-# GPU: for CUDA wheels install torch/torchaudio first from https://download.pytorch.org/whl/cu121
-#      (the pins below resolve to CPU wheels from PyPI).
-#
+# torch/torchaudio are intentionally NOT listed here, so a Docker build can't pull the
+# CUDA wheels from PyPI. Install them first, then the rest:
+#   CPU:  pip install torch==2.1.0+cpu torchaudio==2.1.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+#   GPU:  pip install torch==2.1.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
 #   pip install -r requirements.txt
 
 # --- Deep learning core ---
-torch==2.1.0
-torchaudio==2.1.0
 numpy==1.26.4                 # torch 2.1 wheels are built against NumPy 1.x
 
 # --- Speech models ---

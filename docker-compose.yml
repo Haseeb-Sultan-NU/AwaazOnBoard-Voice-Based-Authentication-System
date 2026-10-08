@@ -1,0 +1,96 @@
+# Awaaz × FinSecure — offline voice-biometric banking stack
+#
+# Build & publish (dev machine, needs internet + HF_TOKEN once):
+#   cp .env.example .env            # set DOCKER_USER and HF_TOKEN
+#   docker compose build
+#   docker compose push
+#
+# Run on any other laptop (only this file + a .env with DOCKER_USER):
+#   docker compose pull
+#   docker compose up -d --no-build
+#
+# Open: http://localhost:3001 (bank)   http://localhost:3000 (Awaaz admin console)
+
+name: telephony-voice-banking
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret}
+      POSTGRES_DB: ${POSTGRES_DB:-awaazonboard}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  awaaz-backend:
+    build:
+      context: ./backend
+      secrets:
+        - hf_token          # gated pyannote models are baked in at build time
+    image: ${DOCKER_USER:?Set DOCKER_USER in .env}/telephony-awaaz-backend:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-secret}@postgres:5432/${POSTGRES_DB:-awaazonboard}
+    ports:
+      - "8000:8000"          # also called directly by the bank UI in the browser
+    volumes:
+      - awaaz_enrollments:/app/data/enrollments   # enrolled voiceprints (biometric data)
+    depends_on:
+      postgres:
+        condition: service_healthy   # otherwise the API silently falls back to in-memory SQLite
+
+  bank-backend:
+    build:
+      context: ./bank-backend
+    image: ${DOCKER_USER:?Set DOCKER_USER in .env}/telephony-bank-backend:latest
+    restart: unless-stopped
+    environment:
+      AWAAZ_API_URL: http://awaaz-backend:8000
+      BANK_DATABASE_URL: sqlite:////data/bank_data.db
+      BANK_CORS_ORIGINS: http://localhost:3001,http://127.0.0.1:3001
+    ports:
+      - "8001:8001"          # called directly by the bank UI in the browser
+    volumes:
+      - bank_data:/data      # SQLite ledger (accounts + transactions)
+    depends_on:
+      - awaaz-backend
+
+  awaaz-ui:
+    build:
+      context: ./frontend
+      args:
+        AWAAZ_API_INTERNAL_URL: http://awaaz-backend:8000
+    image: ${DOCKER_USER:?Set DOCKER_USER in .env}/telephony-awaaz-ui:latest
+    restart: unless-stopped
+    environment:
+      AWAAZ_API_INTERNAL_URL: http://awaaz-backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - awaaz-backend
+
+  bank-frontend:
+    build:
+      context: ./bank-frontend
+    image: ${DOCKER_USER:?Set DOCKER_USER in .env}/telephony-bank-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    depends_on:
+      - bank-backend
+
+volumes:
+  postgres_data:
+  awaaz_enrollments:
+  bank_data:
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN

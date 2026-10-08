@@ -1,0 +1,15 @@
+node_modules/
+.next/
+out/
+build/
+coverage/
+venv/
+__pycache__/
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+.env
+.env.*
+.git
+Dockerfile
+.dockerignore

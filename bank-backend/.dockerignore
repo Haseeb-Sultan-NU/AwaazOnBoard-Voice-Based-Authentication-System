@@ -1,0 +1,17 @@
+venv/
+env/
+.venv/
+__pycache__/
+*.py[cod]
+node_modules/
+.next/
+.env
+.env.*
+# The ledger lives on a volume; never ship the local dev database in the image
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+.git
+Dockerfile
+.dockerignore
