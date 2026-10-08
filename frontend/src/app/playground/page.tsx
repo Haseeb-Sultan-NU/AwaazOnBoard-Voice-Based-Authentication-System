@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, useCallback } from "react";
+import { Noto_Nastaliq_Urdu } from "next/font/google";
 import {
   ArrowLeft,
   Mic,
@@ -13,6 +14,20 @@ import {
   Terminal,
   AlertTriangle,
 } from "lucide-react";
+
+/* ── Urdu Nastaliq Font ───────────────────────────────────── */
+const nastaliq = Noto_Nastaliq_Urdu({ subsets: ["arabic"], weight: ["400", "700"] });
+
+/* ── Urdu Digit Mappings (mirrored from authenticate page) ── */
+const URDU_NUMERALS: Record<number, string> = {
+  0: "۰", 1: "۱", 2: "۲", 3: "۳", 4: "۴",
+  5: "۵", 6: "۶", 7: "۷", 8: "۸", 9: "۹",
+};
+
+const URDU_WORDS: Record<number, string> = {
+  0: "صفر", 1: "ایک", 2: "دو", 3: "تین", 4: "چار",
+  5: "پانچ", 6: "چھ", 7: "سات", 8: "آٹھ", 9: "نو",
+};
 
 /* ================================================================
    Types
@@ -197,15 +212,16 @@ export default function PlaygroundPage() {
         addLog("ENGINE", "Recording master voice sample...");
         addLog("ENGINE", "Extracting Master Embedding (ECAPA-TDNN 192-dim)...");
 
-        // Build FormData — CRITICAL HACK: send same blob 3× as take_1/2/3
+        // Build FormData for customer enrollment endpoint
         const formData = new FormData();
-        formData.append("user_id", cnic.replace(/-/g, ""));
+        formData.append("customer_cnic", cnic.replace(/-/g, ""));
+        formData.append("customer_name", "Sandbox Test User");
         formData.append("take_1", blob, "audio.webm");
         formData.append("take_2", blob, "audio.webm");
         formData.append("take_3", blob, "audio.webm");
 
-        addLog("API", "POST /api/enroll — uploading 3 voice takes...");
-        const res = await fetch(`${API}/enroll`, {
+        addLog("API", "POST /api/customers/enroll — uploading 3 voice takes...");
+        const res = await fetch(`${API}/customers/enroll`, {
           method: "POST",
           body: formData,
         });
@@ -502,16 +518,21 @@ export default function PlaygroundPage() {
                     Step 2: Live Verification
                   </p>
 
-                  {/* Challenge digits — from real API */}
+                  {/* Challenge digits — Urdu numerals + words */}
                   {challengeDigits.length > 0 ? (
                     <div className="flex items-center gap-3">
                       {challengeDigits.map((d, idx) => (
-                        <span
+                        <div
                           key={idx}
-                          className="flex h-14 w-14 items-center justify-center rounded-2xl border border-green-500/30 bg-green-500/10 text-2xl font-bold text-green-400 glow-green"
+                          className="flex min-h-[100px] w-20 flex-col items-center justify-center gap-3 rounded-2xl border border-green-500/30 bg-green-500/10 py-4 glow-green"
                         >
-                          {d}
-                        </span>
+                          <span className={`${nastaliq.className} text-5xl font-bold leading-none text-green-400`} dir="rtl">
+                            {URDU_NUMERALS[d]}
+                          </span>
+                          <span className={`${nastaliq.className} text-xl leading-none text-green-500/70`} dir="rtl">
+                            {URDU_WORDS[d]}
+                          </span>
+                        </div>
                       ))}
                     </div>
                   ) : (
