@@ -39,7 +39,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · Markers = files in `Awa
 
 **P2 · Freeze split + build the frozen eval set**
 - [x] P2.1 Choose + commit speaker split → `deepfake/splits/lums_split.json` (marker `p2_split_frozen`)
-- [ ] P2.2 Preprocess + build EVAL-LUMS E1/E2/E3 + DEV set, store as archives, hash them (marker `p2_eval_built`)
+- [~] P2.2 (script pushed, run on Colab) Preprocess + build EVAL-LUMS E1/E2/E3 + DEV set, store as archives, hash them (marker `p2_eval_built`)
 - [ ] P2.3 Record manifest hashes in §8.5 (proof the eval set never changes)
 
 **P3 · Baseline (zero-shot) evaluation**
@@ -201,7 +201,7 @@ Upstream stack is old: Python 3.7, torch 1.12.1, a pinned fairseq commit. That c
 ### 7.4 Preprocessing (all sources, deterministic)
 1. Decode → mono → resample to **16 kHz** float32.
 2. Trim leading/trailing silence (energy VAD, conservative), loudness/peak normalize. **Same for both classes.**
-2b. **(D8) Band-limit EVERY file to 7 kHz (low-pass at native rate, before resampling) so 16 kHz and 20 kHz sources look identical above 7 kHz.** Neutralises the sample-rate shortcut; E1 is therefore "clean, 7 kHz band-limited". E2/E3 (≤3.4 kHz) are unaffected.
+2b. **(D8) Band-limit EVERY file to 7 kHz (low-pass at native rate, resample, then the same 7 kHz low-pass again at 16 kHz) so 16 kHz and 20 kHz sources look identical above 7 kHz.** Neutralises the sample-rate shortcut; E1 is therefore "clean, 7 kHz band-limited". E2/E3 (≤3.4 kHz) are unaffected.
 3. Drop clips < 1.0 s (log the count). Short clips are tile-repeated to 64,600 samples at scoring time, not stored padded.
 4. Store as 16-bit PCM WAV inside per-split `.tar` archives on Drive (fast to copy, then extract to local SSD).
 
@@ -298,6 +298,7 @@ state/        *.done markers   ·   logs/events.log (one line per event, all acc
 | `scripts/download_lums.py` | P1.1 |
 | `scripts/inventory.py` | P1.2 |
 | `scripts/apply_split.py` | P2.1 |
+| `scripts/build_eval.py` | P2.2 (band-limit, trim, dedupe, E1/E2/E3, tars + per-file manifests; resumable) |
 | `colab/AwaazDeepfake.ipynb` | thin runner notebook (MASTER SEQUENCE + one cell per step) |
 | `splits/` | frozen split JSONs (P2) |
 
@@ -321,6 +322,7 @@ state/        *.done markers   ·   logs/events.log (one line per event, all acc
 | Date | Account | Step / run | Git hash | Outcome | Notes |
 |---|---|---|---|---|---|
 | 2026-11-22 | – | P1.1/P1.2 run on Colab | ok | 6,794 files, manifest sha256 38023632…, tar sha256 246626ff84f9… |
+| 2026-11-22 | – | P2.2 build_eval.py written (local fake-data test ok) | – | pending Colab run | train e1 / dev e1,e2 / eval e1,e2,e3; dedupe prefers eval>dev>train |
 | 2026-11-22 | – | P2.1 split frozen + apply_split run | ok | split sha256 82910e20…; found 20 kHz Tacotron shortcut + 198 duplicate-hash files |
 | 2026-11-22 | – | P0 files created | – | ok | tracker, config, scripts, notebook (dry-run tested locally with fake data) |
 
