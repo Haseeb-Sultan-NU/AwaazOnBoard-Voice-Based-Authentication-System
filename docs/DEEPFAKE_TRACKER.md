@@ -53,8 +53,11 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · Markers = files in `Awa
 - [ ] P4.2 Generate clones, standardize, freeze EVAL-EL (+ optional adapt split), hash it
 - [ ] P4.3 Baseline score EVAL-EL with the pretrained model
 
-**P5 · Fine-tuning** (recipe §6, decisions D3/D4 first)
-- [ ] P5.1 Training script with resume-from-Drive · P5.2 Run 1 · P5.3 (optional) Run 2 (ablation)
+**P5 · Fine-tuning** (recipe §6; D3/D4/D10 decided 2026-11-22)
+- [x] P5.0 `train.py` + `augment.py` written; locally tested (tiny model, CPU): smoke, Ctrl-C save, mid-epoch resume, finished-run guard, config-change guard, fp16 best.pt → evaluate loader
+- [ ] P5.1 Colab smoke test (`--smoke`): speed, GPU memory, checkpoint round trip, Drive Trash purge
+- [ ] P5.2 Run `ft1` = LUMS train speakers only → P6 eval
+- [ ] P5.3 Run `ft2` = LUMS + EL-adapt speakers (after P4) → ablation vs ft1 on EVAL-EL
 
 **P6 · Final evaluation** on the *same* frozen sets/script → final table §11
 **P7 · Integration** (`backend/src/verification/spoof_detector.py`, routes, AuthLog reason, forensics UI, Docker prefetch)
@@ -157,22 +160,21 @@ Upstream stack is old: Python 3.7, torch 1.12.1, a pinned fairseq commit. That c
 | Data loader | shuffle, drop_last, 8 workers |
 | Known upstream bugs | `train_epoch` uses the global optimizer; eval writer resets lists every batch. **We write our own train/eval code.** |
 
-## 6. Our fine-tuning recipe (DRAFT, finalize as D3/D4 before P5)
-| Setting | Draft value | Why |
+## 6. Our fine-tuning recipe (DECIDED 2026-11-22 as D3/D4/D10; machine values in `config.json` → `train`)
+| Setting | Value | Why |
 |---|---|---|
-| Init | `MMpaper_model.pth` | start from the strongest public checkpoint |
-| Trainable | transformer + SLS head; **CNN feature encoder frozen** (D3) | standard for small data; saves VRAM + optimizer storage |
-| Optimizer | Adam, lr **1e-6** backbone / **1e-5** head (D3), wd 1e-4 | keep the paper's scale; head adapts faster |
-| Schedule | constant (+ optional 1-epoch warmup) | |
-| Precision | fp16 AMP (T4) with GradScaler | memory |
-| Batch | 8 per step × grad-accum 2 = effective 16 (measure VRAM on T4 first) | |
-| Loss | weighted CE, weights = inverse class frequency of the **train** manifest | LUMS is ~50/50 bona fide/spoof, so weights differ from the paper's [0.1, 0.9] |
-| Train aug (D4) | RawBoost + TelephonySimulator + Opus round-trip, each p≈0.5, **applied to BOTH classes** | stops the model learning "phone-sounding = fake" or "laptop mic = real" |
-| Crop | random 64,600-sample crop per epoch (tile if short) | |
-| Epochs | max 10; eval DEV each epoch | |
-| Early stopping | patience 3 on **DEV EER** (E2 condition), keep best | fixes upstream's train-loss stopping |
-| Seeds | 1234 (torch/numpy/random), deterministic loaders | reproducibility |
-| Checkpointing | every 15 min wall-clock + end of epoch (§9.4) | Colab timeouts |
+| Init | `MMpaper_model.pth` via our HF port | strongest public checkpoint |
+| Trainable | 24 transformer blocks + feature projection + SLS head; **CNN feature encoder frozen** (D3) | small data; saves memory |
+| Optimizer | AdamW, lr **3e-6** backbone / **3e-5** head, wd 1e-4, linear warm-up 100 steps then constant (D3) | ~3× the paper's 1e-6: 10 epochs of 3k clips vs the paper's 100 epochs of 25k; revisit if dev EER does not move by epoch 2 |
+| Precision | fp16 autocast + GradScaler (train); fp32, no TF32 (all scoring) | T4 memory/speed; exact eval |
+| Batch | 8 × grad-accum 2 = 16; grad-clip 1.0 | |
+| Loss | weighted NLL on log-softmax, weights = N/(2·N_class) from the train manifest | train is 48.5 % bona fide |
+| Train aug (D4), same probability for BOTH classes | noise 0.3 (SNR 15–40 dB, coloured), impulses 0.1, telephony 0.5 (8 kHz, HP 200–400, LP 3000–3600, SNR 10–30 dB), Opus 0.3 (12/16/24/32 kbps), random peak 0.3–0.95 | baseline shows channel = main failure; label-blind aug stops "phone-sounding = fake" |
+| Crop | random 64,600 window per sample (tile if short); eval = first window | |
+| Selection / early stop (D10) | **mean EER of DEV E1 and DEV E2**; patience 3; max 10 epochs | keeps clean performance while fixing telephony (pure E2 could trade away E1) |
+| Determinism | sample order + augmentation seeded by (seed, epoch, index) | exact mid-epoch resume |
+| Checkpoints | `<run>_last.pt` (≈3.9 GB: model + AdamW + scaler + RNG + history) every 30 min + epoch end; `<run>_best.pt` fp16 (≈0.7 GB) | Colab timeouts |
+| Caveat for the report | E2/E3 are simulated channels similar to the training augmentation, so they are partly in-distribution. **EVAL-EL (real browser recordings + real ElevenLabs clones) is the honest out-of-distribution test.** | |
 
 ---
 
@@ -186,14 +188,16 @@ Upstream stack is old: Python 3.7, torch 1.12.1, a pinned fairseq commit. That c
   VITS multi-speaker, 16 kHz, 80 mel. The paper's split was 8 / 4 / 5 speakers (train / dev / eval).
 - Clip lengths 0.4–40 s (HF viewer). Exact sample rate/format are confirmed by `inventory.py`.
 
-### 7.2 ElevenLabs set (EVAL-EL; realistic modern attack)
+### 7.2 ElevenLabs set (EVAL-EL; realistic modern attack) — how it is fed
 | Item | Spec |
 |---|---|
-| Speakers | 6–10 consenting people (written consent; biometric data). ≥ 4 are **eval-only**; optionally 2–3 form an "adapt" split for a training ablation |
-| Bona fide per speaker | 20 three-digit Urdu challenges (as the app asks) + 10 bank commands, recorded **through the app/browser mic** (WebM/Opus) |
-| Cloning source | separate ~2 min free reading per speaker. **Never** in eval (avoids text/session overlap) |
-| Spoofs | ElevenLabs clone of each speaker saying the same 30 texts. Record the model name/version + settings in the run log |
-| Optional | replay attack: play bona fide through a phone speaker, re-record via the app |
+| Speakers | 6–10 consenting people (written consent; biometric data). Split by SPEAKER: **EL-eval ≥ 4 speakers (frozen, never trained on)**, **EL-adapt 2–3 speakers (optional, training only for run ft2)** |
+| Bona fide per speaker | 20 three-digit Urdu challenges + 10 bank commands, recorded **through the app/browser mic** (WebM/Opus) |
+| Cloning source | separate ~2 min free reading per speaker. **Never** used as bona fide (avoids text/session overlap) |
+| Spoofs | ElevenLabs clone of each speaker saying the same 30 texts. Log model name/version + settings (D6) |
+| Format-leak guard | real = browser Opus, clones = ElevenLabs MP3 → a model could learn "MP3 = fake". So clones are passed through the **same Opus round trip** as the browser path (= clone injected into the call), then both classes go through the identical §7.4 pipeline |
+| Use | EL-eval: scored by `evaluate.py` for baseline, ft1, ft2 (+ system-level: % clones ECAPA accepts alone vs with detector). EL-adapt: appended to `train_sets` for ft2, oversampled ×4 so it is ~15 % of batches |
+| Optional | replay attack: play clone through a phone speaker, re-record via the app |
 | Storage | Drive `raw/elevenlabs/` only (never git) · delete after the FYP |
 
 ### 7.3 Splits (D1; freeze in P2.1)
@@ -321,6 +325,8 @@ state/        *.done markers   ·   logs/events.log (one line per event, all acc
 | `data.py` | frozen-set restore Drive→local with manifest-hash + per-file sha256 checks |
 | `metrics.py` | EER / AUC / rates at τ |
 | `splits/frozen_hashes.json` | frozen manifest hashes (scripts refuse to run on a changed set) |
+| `scripts/train.py` | P5: resumable fine-tuning (`--smoke`, `--run`) |
+| `augment.py` | label-blind channel augmentation |
 | `colab/AwaazDeepfake.ipynb` | thin runner notebook (MASTER SEQUENCE + one cell per step) |
 | `splits/` | frozen split JSONs (P2) |
 
@@ -348,6 +354,7 @@ Reading: strong zero-shot on clean Urdu (LUMS paper's AASIST-L ≈ 50 %), but ch
 | Date | Account | Step / run | Git hash | Outcome | Notes |
 |---|---|---|---|---|---|
 | 2026-11-22 | – | P1.1/P1.2 run on Colab | ok | 6,794 files, manifest sha256 38023632…, tar sha256 246626ff84f9… |
+| 2026-11-22 | – | P5 train.py written + local mechanics test | – | ok | tiny 2-layer model on CPU (full model needs the T4): smoke PASS, SIGINT save, resume at exact batch, finished/config guards, fp16 best.pt loads |
 | 2026-11-22 | – | P3.3 baseline eval on Colab T4 | e9072ad | ok | ~9–15 files/s on T4; full table in §11; EVAL EER E1 10.9 / E2 26.0 / E3 33.0 % |
 | 2026-11-22 | – | P3.1 + P3.2 on Colab T4 | 4a196bc | PASS | torch 2.14.1+cu130, transformers 5.22.1; parity on 23 windows (21 real TRAIN): CPU max|Δlogprob| 3.7e-4, GPU 1.1e-4, same decisions. Observations: Tacotron −10…−17, VITS −6…−14, bona fide −7.8…+12.5 (3/5 below 0) → default τ=0 would reject many real Urdu clips (hence τ from DEV). Silence/noise score +10.5 ("real"), so the detector must run after the Gatekeeper's no-speech check (P7) |
 | 2026-11-22 | – | P3 code written + local test | – | ok | parity vs ONNX on synthetic inputs: max |Δlogprob| 3.5e-5, same decisions; full P3.1→P3.3 chain + resume tested on fake data (CPU) |
@@ -373,11 +380,12 @@ Reading: strong zero-shot on clean Urdu (LUMS paper's AASIST-L ≈ 50 %), but ch
 | ID | Decision | Status |
 |---|---|---|
 | D1 | LUMS speaker IDs per split | DECIDED 2026-11-22 (see §7.3) |
+| D10 | Model selection = mean(DEV E1, DEV E2) EER | DECIDED 2026-11-22 (§6) |
 | D2 | HF port vs fairseq | DECIDED 2026-11-22: HF port (§4.6) |
 | D9 | Score = log-odds instead of logp[bona] (saturation) | DECIDED 2026-11-22 (§8.2) |
 | D8 | 7 kHz common band-limit to remove 16k/20k label leak (§7.4 step 2b) | proposed 2026-11-22, apply in P2.2 |
-| D3 | Trainable layers + LRs | before P5 |
-| D4 | Train augmentation set/probabilities | before P5 |
+| D3 | Trainable layers + LRs | DECIDED 2026-11-22 (§6) |
+| D4 | Train augmentation set/probabilities | DECIDED 2026-11-22 (§6) |
 | D5 | Add AASIST comparison row? | optional |
 | D6 | ElevenLabs model/version for clones | P4 |
 | D7 | Repo private or public (decides whether `GITHUB_TOKEN` is needed) | P0 |
@@ -403,5 +411,8 @@ Things that would silently ruin results, and how each is handled.
 | 15 | Overfitting with 8 training speakers | frozen CNN, low LR, early stop patience 3 on DEV E2 EER, max 10 epochs |
 | 16 | Incomplete checkpoint on timeout (resume diverges) | atomic save of model + optimizer + scaler + epoch/step + RNG states + best EER + git/config hash |
 | 17 | Drive quota (15 GB) | ONNX never on Drive; keep 1 last.pt + 1 best.pt (fp16); empty Trash; `raw/lums_urdu.tar` can be deleted after P5 if space runs out |
-| 18 | DataLoader workers sharing RNG seeds (identical augmentation) | `worker_init_fn` seeding from base seed + worker id + epoch |
+| 18 | DataLoader workers sharing RNG seeds (identical augmentation) | per-sample RNG seeded by (seed, epoch, index); no global RNG in workers |
+| 19 | **Drive Trash**: overwriting a checkpoint on mounted Drive moves the old 3.9 GB copy to Trash (still counts) | uniquely named checkpoints + permanent delete of only those names from Trash after each save (needs the notebook's Drive-login cell); free-space check before each save, falls back to local-only with a loud warning |
+| 20 | Resuming with a changed recipe | config hash stored in the checkpoint; mismatch → refuse (`--force-config` to override) |
+| 21 | Format leak in EVAL-EL (browser Opus vs ElevenLabs MP3) | clones get the same Opus round trip as bona fide (§7.2) |
 

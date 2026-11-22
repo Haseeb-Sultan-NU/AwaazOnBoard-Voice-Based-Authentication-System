@@ -103,3 +103,24 @@ def log_event(msg: str) -> None:
             f.write(line)
     except OSError:
         pass
+
+
+def purge_trashed(names: list[str]) -> str:
+    """Permanently delete OUR trashed checkpoint files (exact names, owned by the mounted account).
+    Needed because overwriting a file on mounted Drive moves the old copy to Trash, where it still uses quota
+    (a 3.9 GB checkpoint every 30 min would fill 15 GB in a few hours). Never touches anything else in Trash.
+    Requires `from google.colab import auth; auth.authenticate_user()` in the notebook first; best-effort."""
+    try:
+        import google.auth
+        from googleapiclient.discovery import build
+        creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/drive"])
+        svc = build("drive", "v3", credentials=creds, cache_discovery=False)
+        n = 0
+        for name in names:
+            q = f"name = '{name}' and trashed = true and 'me' in owners"
+            for f in svc.files().list(q=q, fields="files(id,name)", pageSize=100).execute().get("files", []):
+                svc.files().delete(fileId=f["id"]).execute()
+                n += 1
+        return f"ok ({n} purged)"
+    except Exception as e:  # noqa: BLE001
+        return f"UNAVAILABLE ({type(e).__name__}: {str(e)[:120]})"

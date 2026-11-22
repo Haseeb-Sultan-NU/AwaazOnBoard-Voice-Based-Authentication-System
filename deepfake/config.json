@@ -91,5 +91,62 @@
     "primary": "first 64600 samples, tile if shorter",
     "secondary": "mean log-odds over non-overlapping windows, max 4",
     "threshold": "EER threshold on dev e2 primary; accept as bona fide iff score > tau"
+  },
+  "train": {
+    "_comment": "P5 recipe (tracker \u00a76, D3/D4). Changing any value changes config_hash -> train.py refuses to resume an old run with it.",
+    "init": "pretrained",
+    "train_sets": [
+      "train:e1"
+    ],
+    "dev_sets": [
+      "dev:e1",
+      "dev:e2"
+    ],
+    "select_metric": "mean EER of dev:e1 and dev:e2 (primary window); lower is better",
+    "freeze_cnn": true,
+    "lr_backbone": 3e-06,
+    "lr_head": 3e-05,
+    "weight_decay": 0.0001,
+    "warmup_steps": 100,
+    "batch": 8,
+    "accum": 2,
+    "max_epochs": 10,
+    "patience": 3,
+    "grad_clip": 1.0,
+    "checkpoint_minutes": 30,
+    "num_workers": 2,
+    "max_skipped_steps": 25,
+    "aug": {
+      "p_noise": 0.3,
+      "noise_snr_db": [
+        15,
+        40
+      ],
+      "p_impulse": 0.1,
+      "p_telephony": 0.5,
+      "tel_snr_db": [
+        10,
+        30
+      ],
+      "tel_hp_hz": [
+        200,
+        400
+      ],
+      "tel_lp_hz": [
+        3000,
+        3600
+      ],
+      "p_opus": 0.3,
+      "opus_kbps": [
+        12,
+        16,
+        24,
+        32
+      ],
+      "peak": [
+        0.3,
+        0.95
+      ]
+    }
   }
 }

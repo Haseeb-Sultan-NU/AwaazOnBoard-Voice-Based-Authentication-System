@@ -29,6 +29,7 @@ STEPS = [
     ("p3_download_pretrained", "P3  Pretrained weights on Drive (sha256 verified)"),
     ("p3_model_ready", "P3  HF port parity-checked vs ONNX reference"),
     ("p3_baseline_eval", "P3  Baseline (zero-shot) eval done"),
+    ("p5_train_ft1", "P5  Fine-tuning run ft1 finished"),
 ]
 
 
