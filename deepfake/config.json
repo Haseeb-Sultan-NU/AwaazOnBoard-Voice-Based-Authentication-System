@@ -1,34 +1,56 @@
 {
   "_comment": "Single source of truth for the deepfake-defense pipeline. Explanations live in docs/DEEPFAKE_TRACKER.md. Change values only together with a Decisions-log entry.",
-
   "repo": {
     "url": "https://github.com/Haseeb-Sultan-NU/AwaazOnBoard-Voice-Based-Authentication-System.git",
     "branch": "feature/deepfake-defense",
     "colab_clone_dir": "/content/repo"
   },
-
   "paths": {
     "drive_root": "/content/drive/MyDrive/AwaazDeepfake",
     "local_root": "/content/work",
-    "drive_subdirs": ["raw", "processed", "manifests", "models/pretrained", "checkpoints", "results", "state", "logs"],
-    "local_subdirs": ["raw", "processed", "models", "tmp"]
+    "drive_subdirs": [
+      "raw",
+      "processed",
+      "manifests",
+      "models/pretrained",
+      "checkpoints",
+      "results",
+      "state",
+      "logs"
+    ],
+    "local_subdirs": [
+      "raw",
+      "processed",
+      "models",
+      "tmp"
+    ]
   },
-
   "datasets": {
     "lums": {
       "hf_repo_id": "CSALT/deepfake_detection_dataset_urdu",
       "hf_repo_type": "dataset",
       "license": "CC BY-NC 4.0 (academic use OK, do not redistribute)",
-      "expected_files": {"Bonafide": 3398, "Spoofed_TTS": 1698, "Spoofed_Tacotron": 1698},
+      "expected_files": {
+        "Bonafide": 3398,
+        "Spoofed_TTS": 1698,
+        "Spoofed_Tacotron": 1698
+      },
       "expected_total_files": 6794,
       "expected_size_gb": 1.96,
-      "label_map": {"Bonafide": "bonafide", "Spoofed_TTS": "spoof", "Spoofed_Tacotron": "spoof"},
-      "attack_map": {"Bonafide": "-", "Spoofed_TTS": "vits", "Spoofed_Tacotron": "tacotron"},
+      "label_map": {
+        "Bonafide": "bonafide",
+        "Spoofed_TTS": "spoof",
+        "Spoofed_Tacotron": "spoof"
+      },
+      "attack_map": {
+        "Bonafide": "-",
+        "Spoofed_TTS": "vits",
+        "Spoofed_Tacotron": "tacotron"
+      },
       "drive_archive": "raw/lums_urdu.tar",
       "local_extract_dir": "raw/lums"
     }
   },
-
   "audio": {
     "sample_rate": 16000,
     "channels": 1,
@@ -39,8 +61,35 @@
     "long_clip_policy_primary": "first window only (Arena protocol)",
     "long_clip_policy_secondary": "mean score over non-overlapping windows, max 4"
   },
-
-  "labels": {"bonafide": 1, "spoof": 0, "_note": "upstream convention: class index 1 = bona fide; score = log-prob of class 1, higher = more real"},
-
-  "seed": 1234
+  "labels": {
+    "bonafide": 1,
+    "spoof": 0,
+    "_note": "upstream convention: class index 1 = bona fide; score = log-prob of class 1, higher = more real"
+  },
+  "seed": 1234,
+  "pretrained": {
+    "hf_repo_id": "SpeechAntiSpoofingBenchmarks/XLSR-SLS",
+    "revision": "6b99ebc9d9240571c4fe21b364d49845ce9b6bd9",
+    "weights": {
+      "file": "MMpaper_model.pth",
+      "sha256": "0d315184aa8e6f017ea72c4d2458c11bae8f07fd743fe860a3aa932e36135fa6",
+      "bytes": 1363354095,
+      "drive_path": "models/pretrained/MMpaper_model.pth"
+    },
+    "onnx_reference": {
+      "file": "xlsr-sls.onnx",
+      "sha256": "0aa36298a1a893bfb58a8d721dd30d046157f559da1165f95d2a0b69988c1bbd",
+      "bytes": 1356274368,
+      "_note": "parity reference only; kept on local SSD, NOT on Drive (saves 1.36 GB quota)"
+    },
+    "parity_ref_drive_path": "models/pretrained/parity_ref.npz",
+    "parity_tolerance": 0.001,
+    "selfcheck_tolerance": 0.002
+  },
+  "scoring": {
+    "score": "log-odds = logp[bona] - logp[spoof] (same ranking as upstream logp[bona], no float32 saturation)",
+    "primary": "first 64600 samples, tile if shorter",
+    "secondary": "mean log-odds over non-overlapping windows, max 4",
+    "threshold": "EER threshold on dev e2 primary; accept as bona fide iff score > tau"
+  }
 }

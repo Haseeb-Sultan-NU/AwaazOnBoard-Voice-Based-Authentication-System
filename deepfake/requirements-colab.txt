@@ -3,3 +3,8 @@
 huggingface_hub>=0.23
 soundfile>=0.12
 tqdm
+# P3: parity reference runtime (CPU build is enough). transformers is preinstalled on Colab; any version works
+# because the model port runs the encoder blocks itself, and every run re-checks against parity_ref.npz.
+onnxruntime>=1.17
+transformers>=4.30
+scipy

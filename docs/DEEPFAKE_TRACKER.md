@@ -43,9 +43,9 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · Markers = files in `Awa
 - [x] P2.3 Record manifest hashes in §8.5 (proof the eval set never changes)
 
 **P3 · Baseline (zero-shot) evaluation**
-- [ ] P3.1 Download pretrained weights to Drive (`models/pretrained/`)
-- [ ] P3.2 Load model (fairseq or HF port, §4.6) + parity check (marker `p3_model_ready`)
-- [ ] P3.3 Score DEV + EVAL-LUMS (E1–E3) → baseline table §11 (marker `p3_baseline_eval`)
+- [~] P3.1 `download_pretrained.py`: MMpaper_model.pth (sha256-pinned, HF rev 6b99ebc) → Drive `models/pretrained/` (marker `p3_download_pretrained`)
+- [~] P3.2 `parity_check.py`: HF port vs published ONNX on 21 real TRAIN windows + 2 synthetic, CPU and GPU (marker `p3_model_ready`). Local pre-test 2026-11-22: max |Δlogprob| 3.5e-5 → PASS
+- [~] P3.3 `evaluate.py --run baseline`: score DEV e1/e2 + EVAL e1/e2/e3 → baseline table §11 (marker `p3_baseline_eval`)
 - [ ] P3.4 (optional) Same for AASIST as an extra comparison row
 
 **P4 · ElevenLabs set (human task, runs in parallel with P2/P3)**
@@ -119,9 +119,17 @@ Total ≈ **340.8 M** params (XLS-R ≈ 317.4 M + head ≈ 23.4 M) → ≈ 1.36 
 | File | What | Where it goes |
 |---|---|---|
 | `MMpaper_model.pth` | paper's full fine-tuned state_dict (XLS-R + SLS) | Drive `models/pretrained/` |
-| `xlsr2_300m.pt` | base XLS-R; only needed to *build* the fairseq architecture (weights overwritten) | Drive `models/pretrained/` |
+| `xlsr2_300m.pt` | base XLS-R; only needed to *build* the fairseq architecture | **not needed** (HF port builds the architecture from a pinned config) |
+| `xlsr-sls.onnx` | ONNX export of the same checkpoint (same HF repo) | parity reference only; local SSD, never Drive |
 
-### 4.6 Loading strategy (decision D2, settle in P3.2)
+Pinned: HF `SpeechAntiSpoofingBenchmarks/XLSR-SLS` revision `6b99ebc9d9240571c4fe21b364d49845ce9b6bd9`; MMpaper_model.pth sha256 `0d315184…5fa6` (1,363,354,095 B); ONNX sha256 `0aa36298…1bbd`. Checkpoint = 440 tensors, keys `module.ssl_model.model.*` + `module.{fc0,first_bn,fc1,fc3}`; 10 pretraining-only tensors skipped (quantizer, project_q, final_proj, encoder.layer_norm, mask_emb = 1.95 M) → 338.84 M used (= 340.79 M card total).
+
+### 4.6 Loading strategy (D2 DECIDED 2026-11-22: HF port, `deepfake/model/xlsr_sls.py`)
+- Implemented as Option A, but **without hooks or `output_hidden_states`**: the 24 encoder blocks are called in our own loop and their raw outputs collected. Reason: transformers v4 and v5 define `hidden_states` differently (v5 = raw layer outputs, v4 = input + layers + final-LN), so a Colab upgrade could silently shift features. The loop also makes LayerDrop (0.1 in the XLS-R config) and SpecAugment impossible, both of which would break SLS.
+- Input is the raw waveform, not mean/var-normalised (as upstream). Final encoder LayerNorm unused.
+- Every eval run re-scores `parity_ref.npz` (tolerance 2e-3) before scoring, to catch library drift.
+
+Original plan, kept for reference:
 Upstream stack is old: Python 3.7, torch 1.12.1, a pinned fairseq commit. That clashes with Colab and our backend (torch 2.1).
 - **Option A (preferred): port to HF `transformers`.** Use `Wav2Vec2Model` (XLS-R 300M config), remap fairseq keys → HF keys, and
   capture each block's output with **forward hooks on `encoder.layers[i]`**. Don't use `hidden_states` naively: in HF the last
@@ -218,6 +226,7 @@ Upstream stack is old: Python 3.7, torch 1.12.1, a pinned fairseq commit. That c
 ### 8.1 Sets
 DEV-LUMS (threshold + early stopping) · **EVAL-LUMS** (5 speakers, E1–E3) · **EVAL-EL** (P4, E1 = as recorded, + E2).
 ### 8.2 Scoring
+- **Score = log-odds = logp[bona] − logp[spoof]** (D9, 2026-11-22). Same ranking as upstream logp[bona], but logp[bona] saturates at ≈ −1e-5 in float32 for confident real clips (ties corrupt EER). Accept as bona fide iff score > τ.
 - **Primary:** first 64,600 samples, tile-repeat if shorter (= Arena protocol, comparable with public numbers).
 - **Secondary:** mean score over non-overlapping 64,600-sample windows (max 4). Report both, decide on primary.
 - Scores written per file to CSV incrementally (resumable): `relpath, set, condition, label, attack, speaker, score`.
@@ -304,6 +313,14 @@ state/        *.done markers   ·   logs/events.log (one line per event, all acc
 | `scripts/inventory.py` | P1.2 |
 | `scripts/apply_split.py` | P2.1 |
 | `scripts/build_eval.py` | P2.2 (band-limit, trim, dedupe, E1/E2/E3, tars + per-file manifests; resumable) |
+| `scripts/download_pretrained.py` | P3.1 |
+| `scripts/parity_check.py` | P3.2 (writes `models/pretrained/parity_ref.npz`) |
+| `scripts/evaluate.py` | P3.3 + P6: one evaluator for baseline and fine-tuned (`--run`, `--ckpt`) |
+| `model/xlsr_sls.py` | HF port of XLSR-SLS + fairseq→HF weight mapping + windowing |
+| `model/loader.py` | load model, exact-math settings (no TF32), GPU guard, parity self-check |
+| `data.py` | frozen-set restore Drive→local with manifest-hash + per-file sha256 checks |
+| `metrics.py` | EER / AUC / rates at τ |
+| `splits/frozen_hashes.json` | frozen manifest hashes (scripts refuse to run on a changed set) |
 | `colab/AwaazDeepfake.ipynb` | thin runner notebook (MASTER SEQUENCE + one cell per step) |
 | `splits/` | frozen split JSONs (P2) |
 
@@ -327,6 +344,7 @@ state/        *.done markers   ·   logs/events.log (one line per event, all acc
 | Date | Account | Step / run | Git hash | Outcome | Notes |
 |---|---|---|---|---|---|
 | 2026-11-22 | – | P1.1/P1.2 run on Colab | ok | 6,794 files, manifest sha256 38023632…, tar sha256 246626ff84f9… |
+| 2026-11-22 | – | P3 code written + local test | – | ok | parity vs ONNX on synthetic inputs: max |Δlogprob| 3.5e-5, same decisions; full P3.1→P3.3 chain + resume tested on fake data (CPU) |
 | 2026-11-22 | – | P2.2 build_eval.py run on Colab | 8120d99 | ok (~45 min) | dedupe dropped 99 (0 cross-split, 0 label conflicts); 19 short Tacotron clips dropped (<1 s after trim: eval 5, dev 7, train 7); energy >7.2 kHz ~5e-10 for all groups (Tacotron 20k 1.4e-9) → leak neutralised; p2_eval_built DONE |
 | 2026-11-22 | – | P2.1 split frozen + apply_split run | ok | split sha256 82910e20…; found 20 kHz Tacotron shortcut + 198 duplicate-hash files |
 | 2026-11-22 | – | P0 files created | – | ok | tracker, config, scripts, notebook (dry-run tested locally with fake data) |
@@ -349,10 +367,35 @@ state/        *.done markers   ·   logs/events.log (one line per event, all acc
 | ID | Decision | Status |
 |---|---|---|
 | D1 | LUMS speaker IDs per split | DECIDED 2026-11-22 (see §7.3) |
-| D2 | HF port vs fairseq | P3.2 |
+| D2 | HF port vs fairseq | DECIDED 2026-11-22: HF port (§4.6) |
+| D9 | Score = log-odds instead of logp[bona] (saturation) | DECIDED 2026-11-22 (§8.2) |
 | D8 | 7 kHz common band-limit to remove 16k/20k label leak (§7.4 step 2b) | proposed 2026-11-22, apply in P2.2 |
 | D3 | Trainable layers + LRs | before P5 |
 | D4 | Train augmentation set/probabilities | before P5 |
 | D5 | Add AASIST comparison row? | optional |
 | D6 | ElevenLabs model/version for clones | P4 |
 | D7 | Repo private or public (decides whether `GITHUB_TOKEN` is needed) | P0 |
+
+## 15. Training pitfalls checklist (read before writing/running P5)
+Things that would silently ruin results, and how each is handled.
+| # | Pitfall | Guard |
+|---|---|---|
+| 1 | Eval data leaking into training, threshold or early stopping | speaker-disjoint split; τ and early stop from DEV only; eval sets touched only by `evaluate.py` |
+| 2 | Frozen set rebuilt or edited | `frozen_hashes.json` check + per-file sha256 on restore (`data.py`) |
+| 3 | 16 vs 20 kHz label leak (Tacotron = 20 kHz) | D8 common 7 kHz band-limit; verified energy > 7.2 kHz ≈ 5e-10 for all groups |
+| 4 | Duplicate clips | dedupe in `build_eval.py` (99 dropped, 0 cross-split) |
+| 5 | Shortcut "phone-sounding = fake" | channel aug (telephony/Opus/RawBoost) on BOTH classes with equal probability |
+| 6 | LayerDrop / SpecAugment skipping layers (SLS needs all 24) | encoder loop is ours; both impossible (§4.6) |
+| 7 | Library drift (Colab upgrades transformers) | parity self-check on every pretrained eval; training loads the same port |
+| 8 | Score saturation / float ties | log-odds score (D9) |
+| 9 | TF32 / non-determinism changing eval scores | `set_exact_math()` in every eval; training may use fp16 AMP, but eval is fp32 |
+| 10 | BatchNorm left in train mode during dev/eval scoring | `model.eval()` for scoring, `model.train()` after; first_bn running stats saved in checkpoints |
+| 11 | Class imbalance (train ≈ 48 % real) | inverse-frequency CE weights from the train manifest |
+| 12 | Train crop vs eval window mismatch | train: random 64,600 crop (tile if short); eval: first window (+ multi-window secondary) |
+| 13 | Gradient checkpointing with reentrant mode dropping grads | per-layer `checkpoint(use_reentrant=False)` built into the model |
+| 14 | fp16 overflow / NaN loss | GradScaler; abort + reload last good checkpoint if loss is non-finite; evaluator asserts finite outputs |
+| 15 | Overfitting with 8 training speakers | frozen CNN, low LR, early stop patience 3 on DEV E2 EER, max 10 epochs |
+| 16 | Incomplete checkpoint on timeout (resume diverges) | atomic save of model + optimizer + scaler + epoch/step + RNG states + best EER + git/config hash |
+| 17 | Drive quota (15 GB) | ONNX never on Drive; keep 1 last.pt + 1 best.pt (fp16); empty Trash; `raw/lums_urdu.tar` can be deleted after P5 if space runs out |
+| 18 | DataLoader workers sharing RNG seeds (identical augmentation) | `worker_init_fn` seeding from base seed + worker id + epoch |
+

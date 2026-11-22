@@ -42,7 +42,7 @@ backend/                Awaaz API (port 8000)
 bank-backend/bank_main.py     FinSecure API (port 8001): login proxy, Whisper ASR, Urdu NLU, ledger
 frontend/               Awaaz enterprise console (port 3000); /api/* is rewritten to the backend
 bank-frontend/          FinSecure portal (port 3001); a single 1700-line page.tsx that calls :8000 and :8001 directly
-deepfake/               anti-spoofing (XLSR-SLS) pipeline run on Colab: config.json, scripts/, colab/AwaazDeepfake.ipynb
+deepfake/               anti-spoofing (XLSR-SLS) pipeline run on Colab: config.json, scripts/, model/ (HF port), colab/AwaazDeepfake.ipynb
 LLM_HANDOFF/            older (2026-10-05) hand-off notes, superseded by docs/
 docker-compose.yml, start.bat, .env.example
 ```

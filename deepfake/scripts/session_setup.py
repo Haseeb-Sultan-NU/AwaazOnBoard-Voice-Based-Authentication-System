@@ -26,7 +26,8 @@ STEPS = [
     ("p1_inventory_lums", "P1  Inventory + full manifest written"),
     ("p2_split_frozen", "P2  Speaker split frozen (train/dev/eval)"),
     ("p2_eval_built", "P2  Frozen eval set built (E1/E2/E3)"),
-    ("p3_model_ready", "P3  Pretrained XLSR-SLS loaded + parity checked"),
+    ("p3_download_pretrained", "P3  Pretrained weights on Drive (sha256 verified)"),
+    ("p3_model_ready", "P3  HF port parity-checked vs ONNX reference"),
     ("p3_baseline_eval", "P3  Baseline (zero-shot) eval done"),
 ]
 

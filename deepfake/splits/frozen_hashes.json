@@ -1,0 +1,9 @@
+{
+  "_comment": "SHA-256 of the frozen per-file manifests written by build_eval.py (2026-11-22). evaluate.py / train.py refuse to run if a manifest on Drive no longer matches. Never edit; a rebuilt set must get a new name (Golden rule 5).",
+  "proc_eval_e1.csv": "96d2b52b8471ca3ad8b6104a75b9ae47254b7ab2d49d4ac3584f87ce5d8ee45f",
+  "proc_eval_e2.csv": "4c69336866c43d974ad4080b26ddb7b96e4abb43e0d3b85b420aeafbe1557f65",
+  "proc_eval_e3.csv": "dd42d6c86916f097063147c6757be669498916bcabb34787b918c80502370061",
+  "proc_dev_e1.csv": "db175c014d6aaccf7ffc3f9641d7c5ed5eec80d4d2891d9d8a2679f19110e8a5",
+  "proc_dev_e2.csv": "fb3cbd7e1d55cd24fc4a03c7d2aaf4ebba8edbb06b07767aec9a10b7d425bc0f",
+  "proc_train_e1.csv": "f7f51080a5101da55fb30fad3d99fcb0ad4798d91e062352353d2a559bb09a31"
+}
