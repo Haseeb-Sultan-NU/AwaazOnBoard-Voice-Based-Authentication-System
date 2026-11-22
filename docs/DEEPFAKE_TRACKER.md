@@ -39,8 +39,8 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · Markers = files in `Awa
 
 **P2 · Freeze split + build the frozen eval set**
 - [x] P2.1 Choose + commit speaker split → `deepfake/splits/lums_split.json` (marker `p2_split_frozen`)
-- [~] P2.2 (script pushed, run on Colab) Preprocess + build EVAL-LUMS E1/E2/E3 + DEV set, store as archives, hash them (marker `p2_eval_built`)
-- [ ] P2.3 Record manifest hashes in §8.5 (proof the eval set never changes)
+- [x] P2.2 Preprocess + build EVAL-LUMS E1/E2/E3 + DEV set, store as archives, hash them (marker `p2_eval_built`)
+- [x] P2.3 Record manifest hashes in §8.5 (proof the eval set never changes)
 
 **P3 · Baseline (zero-shot) evaluation**
 - [ ] P3.1 Download pretrained weights to Drive (`models/pretrained/`)
@@ -230,9 +230,14 @@ Every result row records: model checkpoint, git hash of eval code, manifest hash
 ### 8.5 Frozen manifest hashes
 | Set | Manifest | SHA-256 | Frozen on |
 |---|---|---|---|
-| LUMS full inventory | `manifests/lums_all.csv` | _TBD_ | |
-| DEV-LUMS | | _TBD_ | |
-| EVAL-LUMS (E1/E2/E3) | | _TBD_ | |
+| LUMS full inventory | `manifests/lums_all.csv` | 380236322060ed101dcd3efa24ee1c54f35fe006437d009f409916dc2cf74f2a | 2026-11-22 |
+| Speaker split | `deepfake/splits/lums_split.json` | 82910e202eaa792dfe6749e5f2ae6a4487b8c6d3d202f67597137c7d5106ef15 | 2026-11-22 |
+| EVAL-LUMS E1 (1,995: 1000 real / 995 fake) | `manifests/proc_eval_e1.csv` | 96d2b52b8471ca3ad8b6104a75b9ae47254b7ab2d49d4ac3584f87ce5d8ee45f | 2026-11-22 |
+| EVAL-LUMS E2 | `manifests/proc_eval_e2.csv` | 4c69336866c43d974ad4080b26ddb7b96e4abb43e0d3b85b420aeafbe1557f65 | 2026-11-22 |
+| EVAL-LUMS E3 | `manifests/proc_eval_e3.csv` | dd42d6c86916f097063147c6757be669498916bcabb34787b918c80502370061 | 2026-11-22 |
+| DEV-LUMS E1 (1,593: 800/793) | `manifests/proc_dev_e1.csv` | db175c014d6aaccf7ffc3f9641d7c5ed5eec80d4d2891d9d8a2679f19110e8a5 | 2026-11-22 |
+| DEV-LUMS E2 | `manifests/proc_dev_e2.csv` | fb3cbd7e1d55cd24fc4a03c7d2aaf4ebba8edbb06b07767aec9a10b7d425bc0f | 2026-11-22 |
+| TRAIN-LUMS E1 (3,088: 1499/1589) | `manifests/proc_train_e1.csv` | f7f51080a5101da55fb30fad3d99fcb0ad4798d91e062352353d2a559bb09a31 | 2026-11-22 |
 | EVAL-EL | | _TBD_ | |
 
 ---
@@ -322,7 +327,7 @@ state/        *.done markers   ·   logs/events.log (one line per event, all acc
 | Date | Account | Step / run | Git hash | Outcome | Notes |
 |---|---|---|---|---|---|
 | 2026-11-22 | – | P1.1/P1.2 run on Colab | ok | 6,794 files, manifest sha256 38023632…, tar sha256 246626ff84f9… |
-| 2026-11-22 | – | P2.2 build_eval.py written (local fake-data test ok) | – | pending Colab run | train e1 / dev e1,e2 / eval e1,e2,e3; dedupe prefers eval>dev>train |
+| 2026-11-22 | – | P2.2 build_eval.py run on Colab | 8120d99 | ok (~45 min) | dedupe dropped 99 (0 cross-split, 0 label conflicts); 19 short Tacotron clips dropped (<1 s after trim: eval 5, dev 7, train 7); energy >7.2 kHz ~5e-10 for all groups (Tacotron 20k 1.4e-9) → leak neutralised; p2_eval_built DONE |
 | 2026-11-22 | – | P2.1 split frozen + apply_split run | ok | split sha256 82910e20…; found 20 kHz Tacotron shortcut + 198 duplicate-hash files |
 | 2026-11-22 | – | P0 files created | – | ok | tracker, config, scripts, notebook (dry-run tested locally with fake data) |
 
