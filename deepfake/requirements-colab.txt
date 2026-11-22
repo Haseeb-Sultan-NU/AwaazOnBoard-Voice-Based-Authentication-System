@@ -1,0 +1,5 @@
+# Extra packages for Colab. torch / torchaudio / numpy / pandas / librosa come preinstalled on Colab:
+# do NOT pin or reinstall torch here (it breaks the CUDA build Colab ships).
+huggingface_hub>=0.23
+soundfile>=0.12
+tqdm

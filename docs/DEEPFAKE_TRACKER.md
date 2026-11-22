@@ -1,0 +1,341 @@
+# Deepfake Defense Tracker (XLSR-SLS for Urdu speaker verification)
+
+The single place for **everything** about the anti-spoofing work: status, every model/training constraint,
+data rules, the Colab/Drive operating manual, and the run log.
+**Update this file at the end of every step** (status board + run log + any changed constraint).
+Machine-readable values live in `deepfake/config.json`; if the two disagree, fix one in the same commit.
+
+Started 2026-11-22 · Budget ≈ 10–14 part-time days · Training on free Colab (account rotation) · Storage on Google Drive.
+
+---
+
+## 1. Goal & success criteria
+Add a **spoof (deepfake) detector** stage to Awaaz: `Gatekeeper → Spoof detector → Liveness → ECAPA`
+(also applied to `/authenticate/continuous` for bank commands).
+
+| # | Criterion | Measured on |
+|---|---|---|
+| G1 | Fine-tuned EER clearly below the zero-shot baseline | frozen EVAL-LUMS, conditions E1–E3 |
+| G2 | Detector catches ElevenLabs clones that ECAPA alone accepts | frozen EVAL-EL |
+| G3 | Few real users wrongly rejected (bona fide reject rate at the dev threshold, reported per condition) | EVAL-LUMS + EVAL-EL bona fide |
+| G4 | Integrated into the backend + UI with acceptable CPU latency (target ≤ 3 s per check) | local / Docker |
+
+Reference point: the LUMS paper's own detectors were at chance on this data (AASIST-L EER 0.495 VITS / 0.524 Tacotron).
+
+---
+
+## 2. Status board
+Legend: `[ ]` todo · `[~]` in progress · `[x]` done · Markers = files in `AwaazDeepfake/state/` (the notebook prints them).
+
+**P0 · Setup**
+- [ ] P0.1 Push branch `feature/deepfake-defense` with `deepfake/` + this file
+- [ ] P0.2 Home Google account: run *INIT DRIVE* cell → `MyDrive/AwaazDeepfake`
+- [ ] P0.3 Share `AwaazDeepfake` (Editor) with every other Colab account + add shortcut in each (§9.1)
+- [ ] P0.4 Colab Secrets in each account: `GITHUB_TOKEN` (only if repo private), optional `HF_TOKEN`
+
+**P1 · Acquire LUMS data**
+- [ ] P1.1 `download_lums.py` → `raw/lums_urdu.tar` verified on Drive (marker `p1_download_lums`)
+- [ ] P1.2 `inventory.py` → `manifests/lums_all.csv` + summary pasted to Claude (marker `p1_inventory_lums`)
+
+**P2 · Freeze split + build the frozen eval set**
+- [ ] P2.1 Choose + commit speaker split → `deepfake/splits/lums_split.json` (marker `p2_split_frozen`)
+- [ ] P2.2 Preprocess + build EVAL-LUMS E1/E2/E3 + DEV set, store as archives, hash them (marker `p2_eval_built`)
+- [ ] P2.3 Record manifest hashes in §8.5 (proof the eval set never changes)
+
+**P3 · Baseline (zero-shot) evaluation**
+- [ ] P3.1 Download pretrained weights to Drive (`models/pretrained/`)
+- [ ] P3.2 Load model (fairseq or HF port, §4.6) + parity check (marker `p3_model_ready`)
+- [ ] P3.3 Score DEV + EVAL-LUMS (E1–E3) → baseline table §11 (marker `p3_baseline_eval`)
+- [ ] P3.4 (optional) Same for AASIST as an extra comparison row
+
+**P4 · ElevenLabs set (human task, runs in parallel with P2/P3)**
+- [ ] P4.1 Recruit 6–10 consenting speakers, record per §7.2
+- [ ] P4.2 Generate clones, standardize, freeze EVAL-EL (+ optional adapt split), hash it
+- [ ] P4.3 Baseline score EVAL-EL with the pretrained model
+
+**P5 · Fine-tuning** (recipe §6, decisions D3/D4 first)
+- [ ] P5.1 Training script with resume-from-Drive · P5.2 Run 1 · P5.3 (optional) Run 2 (ablation)
+
+**P6 · Final evaluation** on the *same* frozen sets/script → final table §11
+**P7 · Integration** (`backend/src/verification/spoof_detector.py`, routes, AuthLog reason, forensics UI, Docker prefetch)
+**P8 · Report + demo** (clone → passes ECAPA alone → blocked by detector)
+
+---
+
+## 3. Golden rules (never break these)
+1. **The eval set is frozen before any model is scored on it.** Speaker-disjoint from training. Built once, stored as
+   archives with SHA-256 hashes recorded in §8.5. The baseline and the fine-tuned model are scored on the
+   *identical* files, with the *same* eval script (git hash recorded in the run log).
+2. Eval data is **never** used for training, threshold selection, early stopping or hyperparameter choice. Those use **DEV** only.
+3. Eval-time channel effects (E2/E3) are **precomputed once with fixed seeds** and stored, never re-randomized per run.
+4. Same window/scoring protocol for every model (§8.2).
+5. Any change to a frozen set = a *new* set with a new name (e.g. EVAL-LUMS-v2) + Decisions-log entry; old results stay valid only for the old set.
+
+---
+
+## 4. Model specification: XLSR-SLS (exact)
+Paper: Zhang, Wen, Hu, *"Audio Deepfake Detection with Self-Supervised XLS-R and SLS Classifier"*, ACM MM 2024.
+Code: github.com/QiShanZhang/SLSforADD (training) · HF `SpeechAntiSpoofingBenchmarks/XLSR-SLS` (released weights + wrapper). License MIT.
+
+### 4.1 Front-end: XLS-R 300M (wav2vec 2.0 "large" architecture, fairseq checkpoint `xlsr2_300m.pt`)
+| Part | Spec |
+|---|---|
+| Pretraining | self-supervised, 128 languages (~436k h). Not trained for spoofing; the SLS paper fine-tunes it end-to-end |
+| Input | raw waveform, 16 kHz, mono, float32 |
+| CNN feature encoder | 7 conv layers, 512 channels, kernels (10,3,3,3,3,2,2), strides (5,2,2,2,2,2,2), GELU, layer-norm → total stride 320 samples = **20 ms hop**, receptive field 400 samples = 25 ms |
+| Feature projection | 512 → 1024 |
+| Positional encoding | convolutional (kernel 128, 16 groups) |
+| Transformer | **24 blocks**, hidden **1024**, **16 heads**, FFN **4096**, GELU, pre-LayerNorm |
+| Output used | the hidden state of **every** one of the 24 blocks ("layer results"), not just the last |
+
+### 4.2 Back-end: SLS classifier (layer-by-layer, B = batch)
+Input window 64,600 samples → **T = 201 frames** (`floor((64600−400)/320)+1`).
+| # | Op | Output shape | Notes |
+|---|---|---|---|
+| 1 | Collect 24 layer outputs | 24 × (B, 201, 1024) | |
+| 2 | Avg-pool each layer over time | (B, 24, 1024) | layer descriptors |
+| 3 | `fc0` Linear 1024 → 1 | (B, 24, 1) | one score per layer |
+| 4 | **Sigmoid** | (B, 24, 1) | per-layer gate in (0,1); independent gates, NOT softmax (they don't sum to 1) |
+| 5 | Gate × full layer features, **sum over layers** | (B, 201, 1024) | "sensitive layer selection" |
+| 6 | Unsqueeze channel | (B, 1, 201, 1024) | |
+| 7 | **BatchNorm2d(1)** | same | |
+| 8 | **SELU** | same | |
+| 9 | **MaxPool2d(3, 3)** | (B, 1, 67, 341) | |
+| 10 | Flatten | (B, 22,847) | 67 × 341. **This is why the input length is fixed** |
+| 11 | `fc1` Linear 22,847 → 1024 | (B, 1024) | ~23.4 M params (most of the head) |
+| 12 | **SELU** | | |
+| 13 | `fc3` Linear 1024 → 2 | (B, 2) | |
+| 14 | **SELU** | | upstream quirk (activation before softmax); keep it for weight compatibility |
+| 15 | **LogSoftmax** (dim=1) | (B, 2) | |
+
+### 4.3 Labels, score, decision
+- Class index **1 = bona fide (real)**, **0 = spoof**. Score = log-prob of class 1 → **higher = more real**.
+- Decision: `spoof if score < τ`, with τ chosen **on DEV only** (§8.3).
+
+### 4.4 Size
+Total ≈ **340.8 M** params (XLS-R ≈ 317.4 M + head ≈ 23.4 M) → ≈ 1.36 GB fp32 / ≈ 0.68 GB fp16.
+
+### 4.5 Pretrained files
+| File | What | Where it goes |
+|---|---|---|
+| `MMpaper_model.pth` | paper's full fine-tuned state_dict (XLS-R + SLS) | Drive `models/pretrained/` |
+| `xlsr2_300m.pt` | base XLS-R; only needed to *build* the fairseq architecture (weights overwritten) | Drive `models/pretrained/` |
+
+### 4.6 Loading strategy (decision D2, settle in P3.2)
+Upstream stack is old: Python 3.7, torch 1.12.1, a pinned fairseq commit. That clashes with Colab and our backend (torch 2.1).
+- **Option A (preferred): port to HF `transformers`.** Use `Wav2Vec2Model` (XLS-R 300M config), remap fairseq keys → HF keys, and
+  capture each block's output with **forward hooks on `encoder.layers[i]`**. Don't use `hidden_states` naively: in HF the last
+  entry has the final LayerNorm applied and the first entry is the pre-block input, whereas fairseq's layer results are the raw block outputs.
+  Removes fairseq from Colab and Docker.
+- **Option B (fallback): fairseq** installed from the repo's bundled commit in Colab.
+- **Parity check (mandatory before P3.3):** on ≥ 20 clips, A and the reference (B or the Arena wrapper's pinned scores) must agree:
+  max |Δscore| < 1e-3 and identical decisions. Log the result.
+
+---
+
+## 5. Upstream training recipe (reference only, what the paper did)
+| Setting | Value |
+|---|---|
+| Train data | ASVspoof 2019 LA train (English) |
+| Optimizer | **Adam** over **all** params (full fine-tuning incl. XLS-R) |
+| Learning rate | **1e-6** (constant) |
+| Weight decay | **1e-4** |
+| Batch size | default 14; README command uses **5** |
+| Epochs | default 100; README command 50 |
+| Loss | weighted cross-entropy (NLL on log-softmax), weights **[0.1 spoof, 0.9 bona fide]** (ASVspoof is ~9:1 spoof-heavy) |
+| Augmentation | RawBoost, default `algo=3` (SSI additive noise) |
+| Seed / determinism | 1234, cudnn deterministic on, benchmark off |
+| Stopping | patience 1 on **training** loss (dev validation is commented out) |
+| Data loader | shuffle, drop_last, 8 workers |
+| Known upstream bugs | `train_epoch` uses the global optimizer; eval writer resets lists every batch. **We write our own train/eval code.** |
+
+## 6. Our fine-tuning recipe (DRAFT, finalize as D3/D4 before P5)
+| Setting | Draft value | Why |
+|---|---|---|
+| Init | `MMpaper_model.pth` | start from the strongest public checkpoint |
+| Trainable | transformer + SLS head; **CNN feature encoder frozen** (D3) | standard for small data; saves VRAM + optimizer storage |
+| Optimizer | Adam, lr **1e-6** backbone / **1e-5** head (D3), wd 1e-4 | keep the paper's scale; head adapts faster |
+| Schedule | constant (+ optional 1-epoch warmup) | |
+| Precision | fp16 AMP (T4) with GradScaler | memory |
+| Batch | 8 per step × grad-accum 2 = effective 16 (measure VRAM on T4 first) | |
+| Loss | weighted CE, weights = inverse class frequency of the **train** manifest | LUMS is ~50/50 bona fide/spoof, so weights differ from the paper's [0.1, 0.9] |
+| Train aug (D4) | RawBoost + TelephonySimulator + Opus round-trip, each p≈0.5, **applied to BOTH classes** | stops the model learning "phone-sounding = fake" or "laptop mic = real" |
+| Crop | random 64,600-sample crop per epoch (tile if short) | |
+| Epochs | max 10; eval DEV each epoch | |
+| Early stopping | patience 3 on **DEV EER** (E2 condition), keep best | fixes upstream's train-loss stopping |
+| Seeds | 1234 (torch/numpy/random), deterministic loaders | reproducibility |
+| Checkpointing | every 15 min wall-clock + end of epoch (§9.4) | Colab timeouts |
+
+---
+
+## 7. Data specification
+
+### 7.1 LUMS Urdu deepfake dataset (train / dev / eval source)
+- HF `CSALT/deepfake_detection_dataset_urdu`, **CC BY-NC 4.0** (academic use OK; never redistribute; never commit audio).
+- HF snapshot (checked 2026-11-22): **1.96 GB**, `Bonafide/` 3,398 · `Spoofed_TTS/` (VITS) 1,698 · `Spoofed_Tacotron/` 1,698 = **6,794 files**,
+  each split into `Speaker_01 … Speaker_17` folders. The paper describes ~37k utterances, so the HF release is a subset. Note it in the report.
+- Paper facts: 17 speakers (7 F / 10 M), read speech in a quiet room on laptops/headphones. Tacotron trained per speaker;
+  VITS multi-speaker, 16 kHz, 80 mel. The paper's split was 8 / 4 / 5 speakers (train / dev / eval).
+- Clip lengths 0.4–40 s (HF viewer). Exact sample rate/format are confirmed by `inventory.py`.
+
+### 7.2 ElevenLabs set (EVAL-EL; realistic modern attack)
+| Item | Spec |
+|---|---|
+| Speakers | 6–10 consenting people (written consent; biometric data). ≥ 4 are **eval-only**; optionally 2–3 form an "adapt" split for a training ablation |
+| Bona fide per speaker | 20 three-digit Urdu challenges (as the app asks) + 10 bank commands, recorded **through the app/browser mic** (WebM/Opus) |
+| Cloning source | separate ~2 min free reading per speaker. **Never** in eval (avoids text/session overlap) |
+| Spoofs | ElevenLabs clone of each speaker saying the same 30 texts. Record the model name/version + settings in the run log |
+| Optional | replay attack: play bona fide through a phone speaker, re-record via the app |
+| Storage | Drive `raw/elevenlabs/` only (never git) · delete after the FYP |
+
+### 7.3 Splits (D1; freeze in P2.1)
+- LUMS: **8 train / 4 dev / 5 eval speakers**, speaker-disjoint across ALL classes (a speaker's bona fide + VITS + Tacotron go to the same split).
+  Eval should contain both genders (use the inventory's F0 hint). IDs go in `deepfake/splits/lums_split.json` (committed) and are copied here.
+- Split IDs: _TBD after P1.2_
+
+### 7.4 Preprocessing (all sources, deterministic)
+1. Decode → mono → resample to **16 kHz** float32.
+2. Trim leading/trailing silence (energy VAD, conservative), loudness/peak normalize. **Same for both classes.**
+3. Drop clips < 1.0 s (log the count). Short clips are tile-repeated to 64,600 samples at scoring time, not stored padded.
+4. Store as 16-bit PCM WAV inside per-split `.tar` archives on Drive (fast to copy, then extract to local SSD).
+
+### 7.5 Eval conditions (precomputed once, fixed seed per file = hash(relpath))
+| Code | Condition | Implementation |
+|---|---|---|
+| **E1** | clean (after §7.4) | – |
+| **E2** | telephony | same as `backend/src/audio/simulator.py` TelephonySimulator: resample 8 kHz, 300 Hz HP + 3400 Hz LP, white noise **SNR 15 dB**, peak-normalize → back to 16 kHz |
+| **E3** | telephony + browser codec | E2 → WebM/Opus round trip via ffmpeg (16 kbps) → 16 kHz |
+
+---
+
+## 8. Evaluation protocol (frozen)
+### 8.1 Sets
+DEV-LUMS (threshold + early stopping) · **EVAL-LUMS** (5 speakers, E1–E3) · **EVAL-EL** (P4, E1 = as recorded, + E2).
+### 8.2 Scoring
+- **Primary:** first 64,600 samples, tile-repeat if shorter (= Arena protocol, comparable with public numbers).
+- **Secondary:** mean score over non-overlapping 64,600-sample windows (max 4). Report both, decide on primary.
+- Scores written per file to CSV incrementally (resumable): `relpath, set, condition, label, attack, speaker, score`.
+### 8.3 Metrics
+- **EER %** per set × condition (primary), plus per attack (VITS / Tacotron / ElevenLabs).
+- AUC. Bona fide reject rate + spoof accept rate at **τ_dev** (the EER threshold on DEV-LUMS E2).
+- System level (EVAL-EL): % of clones accepted by ECAPA alone vs ECAPA + detector at τ_dev.
+### 8.4 Reporting
+Every result row records: model checkpoint, git hash of eval code, manifest hash, condition, date.
+### 8.5 Frozen manifest hashes
+| Set | Manifest | SHA-256 | Frozen on |
+|---|---|---|---|
+| LUMS full inventory | `manifests/lums_all.csv` | _TBD_ | |
+| DEV-LUMS | | _TBD_ | |
+| EVAL-LUMS (E1/E2/E3) | | _TBD_ | |
+| EVAL-EL | | _TBD_ | |
+
+---
+
+## 9. Colab & Drive operating manual
+
+### 9.1 One-time setup
+1. **Repo:** push branch `feature/deepfake-defense`. If the repo is private, make a GitHub fine-grained token
+   (this repo only, *Contents: Read*) and add it as Colab Secret `GITHUB_TOKEN` in **each** account (Secrets are per account).
+2. **Home account** (the one with the most free Drive): open `deepfake/colab/AwaazDeepfake.ipynb` in Colab
+   (GitHub tab → repo → branch), run MASTER SEQUENCE, then the **INIT DRIVE** cell.
+3. Drive web → `AwaazDeepfake` → Share → add every other account as **Editor**.
+4. In **each other account**: Drive web → *Shared with me* → right-click `AwaazDeepfake` → *Organize → Add shortcut → My Drive*.
+   Keep the name exactly `AwaazDeepfake`, so `/content/drive/MyDrive/AwaazDeepfake` resolves in every account.
+5. Save a copy of the notebook to each account's Drive (*File → Save a copy in Drive*), or reopen it from GitHub each time.
+   The notebook only holds thin cells, and all logic is in the repo.
+
+### 9.2 Every session (incl. after timeout / account switch)
+1. Runtime → T4 GPU (CPU for P1/P2 data steps, which saves GPU quota).
+2. Run **MASTER SEQUENCE**. It mounts Drive, pulls the latest code, installs extras, restores local caches and prints the status board.
+3. Run the next unfinished step cell. Finished steps skip themselves (markers).
+
+### 9.3 Storage layout (`MyDrive/AwaazDeepfake/`) and budget
+```
+raw/          lums_urdu.tar (+ .sha256), elevenlabs/          ~2.0 GB (+ EL ~0.3 GB)
+processed/    dev_e2.tar, eval_e1.tar, eval_e2.tar, eval_e3.tar, train.tar  ~3–4 GB
+manifests/    *.csv, *.json (small)
+models/pretrained/   MMpaper_model.pth, xlsr2_300m.pt             ~2.6 GB
+checkpoints/<run>/   last.pt (weights + optimizer, ~4 GB), best.pt (fp16 weights, ~0.7 GB)
+results/<run>/       scores_*.csv, metrics.json
+state/        *.done markers   ·   logs/events.log (one line per event, all accounts)
+```
+- Budget ≈ 12–13 GB at peak → fits a 15 GB free account **if** only one `last.pt` + one `best.pt` is kept per run.
+- ⚠ A file counts against the quota of **the account that created it**, even inside the shared folder. Deleted files sit in that
+  account's **Trash and still count** until it's emptied. Empty Trash in the account that wrote old checkpoints.
+- Fast path: Drive is only for big archives + checkpoints. Training/eval read from `/content/work` (local SSD), which is restored from Drive archives by MASTER SEQUENCE.
+
+### 9.4 Timeout & checkpoint policy
+- Free Colab: idle disconnects (~90 min without interaction), session hard cap (≤ 12 h), unpredictable GPU quota → plan 4–5 h per account.
+- Nothing important lives only in `/content`. Every Drive write is **atomic** (`.partial` → rename), so a cut-off never leaves a "complete-looking" broken file.
+- Training checkpoint = model + optimizer + GradScaler + epoch + global step + RNG states + best DEV EER + config hash + git hash.
+  Saved every **15 min** and at epoch end. The train cell **auto-resumes** from `last.pt`.
+- Long scoring jobs append per-file scores and skip already-scored files, so they're resumable.
+
+### 9.5 Account-switch checklist
+1. Wait for a "checkpoint saved" line (or a step's DONE line). 2. Runtime → *Disconnect and delete runtime*.
+3. New account → open notebook → T4 → **MASTER SEQUENCE** → re-run the step cell (it resumes). 4. Add a run-log row.
+
+### 9.6 Security
+- No secrets in the repo or notebook outputs. Tokens only in Colab Secrets. The master cell masks the token in git output.
+- Audio never goes to git (`*.wav` is already git-ignored). LUMS is non-commercial. ElevenLabs recordings are personal biometric data.
+- Share `AwaazDeepfake` only with your own accounts. The ElevenLabs API key (if used) goes in Secrets, never in code.
+
+---
+
+## 10. Code layout (`deepfake/`)
+| Path | Purpose |
+|---|---|
+| `config.json` | all paths, dataset ids, audio constants, seed (JSON because `*.yaml` is git-ignored repo-wide) |
+| `requirements-colab.txt` | extras for Colab (never reinstall torch) |
+| `common.py` | config, Drive/local paths, atomic writes, sha256, step markers, event log |
+| `scripts/session_setup.py` | called by MASTER SEQUENCE: checks, folder layout, resources, cache restore, status board (`--init` creates the Drive folder) |
+| `scripts/download_lums.py` | P1.1 |
+| `scripts/inventory.py` | P1.2 |
+| `colab/AwaazDeepfake.ipynb` | thin runner notebook (MASTER SEQUENCE + one cell per step) |
+| `splits/` | frozen split JSONs (P2) |
+
+---
+
+## 11. Results
+### Baseline (zero-shot, pretrained XLSR-SLS): EER %
+| Set | E1 clean | E2 telephony | E3 tel+Opus |
+|---|---|---|---|
+| DEV-LUMS | | | |
+| EVAL-LUMS (all) | | | |
+| EVAL-LUMS VITS | | | |
+| EVAL-LUMS Tacotron | | | |
+| EVAL-EL | | | – |
+
+### Final (fine-tuned): same table, filled in P6.
+
+---
+
+## 12. Run log
+| Date | Account | Step / run | Git hash | Outcome | Notes |
+|---|---|---|---|---|---|
+| 2026-11-22 | – | P0 files created | – | ok | tracker, config, scripts, notebook (dry-run tested locally with fake data) |
+
+---
+
+## 13. Risks & mitigations
+| Risk | Mitigation |
+|---|---|
+| Telephony/codec makes real speech look fake (false rejects) | augment both classes; τ from DEV E2; report bona fide reject rate |
+| fairseq install / old torch | HF port (§4.6) + parity check |
+| Colab timeouts / quota | Drive-first storage, atomic writes, auto-resume, account rotation |
+| Drive quota (15 GB) | keep 1 last + 1 best, empty Trash, fp16 best.pt |
+| Overfitting (only 8 train speakers) | frozen CNN, low LR, strong aug, early stop on DEV |
+| Shortcut learning (mic/room differences between real and TTS) | same preprocessing/aug for both classes; E2/E3 eval |
+| CPU latency in production (340 M params) | measure in P7; fallback AASIST or fp16/int8 dynamic quantization |
+| 4 s fixed window vs long commands | multi-window scoring (§8.2) |
+
+## 14. Open decisions
+| ID | Decision | Status |
+|---|---|---|
+| D1 | LUMS speaker IDs per split | after P1.2 |
+| D2 | HF port vs fairseq | P3.2 |
+| D3 | Trainable layers + LRs | before P5 |
+| D4 | Train augmentation set/probabilities | before P5 |
+| D5 | Add AASIST comparison row? | optional |
+| D6 | ElevenLabs model/version for clones | P4 |
+| D7 | Repo private or public (decides whether `GITHUB_TOKEN` is needed) | P0 |
