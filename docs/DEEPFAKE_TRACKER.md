@@ -43,8 +43,8 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · Markers = files in `Awa
 - [x] P2.3 Record manifest hashes in §8.5 (proof the eval set never changes)
 
 **P3 · Baseline (zero-shot) evaluation**
-- [~] P3.1 `download_pretrained.py`: MMpaper_model.pth (sha256-pinned, HF rev 6b99ebc) → Drive `models/pretrained/` (marker `p3_download_pretrained`)
-- [~] P3.2 `parity_check.py`: HF port vs published ONNX on 21 real TRAIN windows + 2 synthetic, CPU and GPU (marker `p3_model_ready`). Local pre-test 2026-11-22: max |Δlogprob| 3.5e-5 → PASS
+- [x] P3.1 `download_pretrained.py`: MMpaper_model.pth (sha256-pinned, HF rev 6b99ebc) → Drive `models/pretrained/` (marker `p3_download_pretrained`)
+- [x] P3.2 `parity_check.py`: HF port vs published ONNX on 21 real TRAIN windows + 2 synthetic, CPU and GPU (marker `p3_model_ready`). Local pre-test 2026-11-22: max |Δlogprob| 3.5e-5 → PASS
 - [~] P3.3 `evaluate.py --run baseline`: score DEV e1/e2 + EVAL e1/e2/e3 → baseline table §11 (marker `p3_baseline_eval`)
 - [ ] P3.4 (optional) Same for AASIST as an extra comparison row
 
@@ -344,6 +344,7 @@ state/        *.done markers   ·   logs/events.log (one line per event, all acc
 | Date | Account | Step / run | Git hash | Outcome | Notes |
 |---|---|---|---|---|---|
 | 2026-11-22 | – | P1.1/P1.2 run on Colab | ok | 6,794 files, manifest sha256 38023632…, tar sha256 246626ff84f9… |
+| 2026-11-22 | – | P3.1 + P3.2 on Colab T4 | 4a196bc | PASS | torch 2.14.1+cu130, transformers 5.22.1; parity on 23 windows (21 real TRAIN): CPU max|Δlogprob| 3.7e-4, GPU 1.1e-4, same decisions. Observations: Tacotron −10…−17, VITS −6…−14, bona fide −7.8…+12.5 (3/5 below 0) → default τ=0 would reject many real Urdu clips (hence τ from DEV). Silence/noise score +10.5 ("real"), so the detector must run after the Gatekeeper's no-speech check (P7) |
 | 2026-11-22 | – | P3 code written + local test | – | ok | parity vs ONNX on synthetic inputs: max |Δlogprob| 3.5e-5, same decisions; full P3.1→P3.3 chain + resume tested on fake data (CPU) |
 | 2026-11-22 | – | P2.2 build_eval.py run on Colab | 8120d99 | ok (~45 min) | dedupe dropped 99 (0 cross-split, 0 label conflicts); 19 short Tacotron clips dropped (<1 s after trim: eval 5, dev 7, train 7); energy >7.2 kHz ~5e-10 for all groups (Tacotron 20k 1.4e-9) → leak neutralised; p2_eval_built DONE |
 | 2026-11-22 | – | P2.1 split frozen + apply_split run | ok | split sha256 82910e20…; found 20 kHz Tacotron shortcut + 198 duplicate-hash files |
