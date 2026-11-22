@@ -38,7 +38,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · Markers = files in `Awa
 - [x] P1.2 `inventory.py` → `manifests/lums_all.csv` + summary pasted to Claude (marker `p1_inventory_lums`)
 
 **P2 · Freeze split + build the frozen eval set**
-- [~] P2.1 (split committed; run `apply_split.py` to set marker) Choose + commit speaker split → `deepfake/splits/lums_split.json` (marker `p2_split_frozen`)
+- [x] P2.1 Choose + commit speaker split → `deepfake/splits/lums_split.json` (marker `p2_split_frozen`)
 - [ ] P2.2 Preprocess + build EVAL-LUMS E1/E2/E3 + DEV set, store as archives, hash them (marker `p2_eval_built`)
 - [ ] P2.3 Record manifest hashes in §8.5 (proof the eval set never changes)
 
@@ -194,11 +194,14 @@ Upstream stack is old: Python 3.7, torch 1.12.1, a pinned fairseq commit. That c
 - Split IDs (FROZEN 2026-11-22, seed 1234, gender via F0>160 Hz → 7F/10M as in paper):
   train = S04 S05 S06 S07 S08 S11 S13 S15 (3F/5M); dev = S01 S02 S12 S14 (2F/2M); eval = S03 S09 S10 S16 S17 (2F/3M).
   File: `deepfake/splits/lums_split.json` (sha256 82910e20…). Never edit.
+- Split counts (apply_split, 2026-11-22): train 1,598 bona fide + 1,596 spoof (798 VITS / 798 Tacotron); dev 800 + 800; eval 1,000 + 1,000. Bona fide 198/103/152 min train/dev/eval.
+- **SHORTCUT FOUND:** Tacotron = 1,698/1,698 at 20 kHz; VITS = 16 kHz; bona fide = 3,298 at 16 kHz + 100 at 20 kHz. Sample-rate/bandwidth is a label leak in E1. Fix (D8): see §7.4 step 2b. Also 198 files share a sha256 with another file (duplicates) → P2.2 must check cross-split overlap and drop dupes inside a split.
 - Inventory facts: 6,794 files, 0 unreadable, mono PCM_16; 16 kHz ×4,996 + 20 kHz ×1,798 (**shortcut risk: check label×sr in apply_split output**); median 7.8 s, 246 clips < 4.04 s.
 
 ### 7.4 Preprocessing (all sources, deterministic)
 1. Decode → mono → resample to **16 kHz** float32.
 2. Trim leading/trailing silence (energy VAD, conservative), loudness/peak normalize. **Same for both classes.**
+2b. **(D8) Band-limit EVERY file to 7 kHz (low-pass at native rate, before resampling) so 16 kHz and 20 kHz sources look identical above 7 kHz.** Neutralises the sample-rate shortcut; E1 is therefore "clean, 7 kHz band-limited". E2/E3 (≤3.4 kHz) are unaffected.
 3. Drop clips < 1.0 s (log the count). Short clips are tile-repeated to 64,600 samples at scoring time, not stored padded.
 4. Store as 16-bit PCM WAV inside per-split `.tar` archives on Drive (fast to copy, then extract to local SSD).
 
@@ -318,7 +321,7 @@ state/        *.done markers   ·   logs/events.log (one line per event, all acc
 | Date | Account | Step / run | Git hash | Outcome | Notes |
 |---|---|---|---|---|---|
 | 2026-11-22 | – | P1.1/P1.2 run on Colab | ok | 6,794 files, manifest sha256 38023632…, tar sha256 246626ff84f9… |
-| 2026-11-22 | – | P2.1 split frozen (committed) | ok | split sha256 82910e20…; apply_split.py pending |
+| 2026-11-22 | – | P2.1 split frozen + apply_split run | ok | split sha256 82910e20…; found 20 kHz Tacotron shortcut + 198 duplicate-hash files |
 | 2026-11-22 | – | P0 files created | – | ok | tracker, config, scripts, notebook (dry-run tested locally with fake data) |
 
 ---
@@ -340,6 +343,7 @@ state/        *.done markers   ·   logs/events.log (one line per event, all acc
 |---|---|---|
 | D1 | LUMS speaker IDs per split | DECIDED 2026-11-22 (see §7.3) |
 | D2 | HF port vs fairseq | P3.2 |
+| D8 | 7 kHz common band-limit to remove 16k/20k label leak (§7.4 step 2b) | proposed 2026-11-22, apply in P2.2 |
 | D3 | Trainable layers + LRs | before P5 |
 | D4 | Train augmentation set/probabilities | before P5 |
 | D5 | Add AASIST comparison row? | optional |
