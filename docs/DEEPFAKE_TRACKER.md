@@ -45,7 +45,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · Markers = files in `Awa
 **P3 · Baseline (zero-shot) evaluation**
 - [x] P3.1 `download_pretrained.py`: MMpaper_model.pth (sha256-pinned, HF rev 6b99ebc) → Drive `models/pretrained/` (marker `p3_download_pretrained`)
 - [x] P3.2 `parity_check.py`: HF port vs published ONNX on 21 real TRAIN windows + 2 synthetic, CPU and GPU (marker `p3_model_ready`). Local pre-test 2026-11-22: max |Δlogprob| 3.5e-5 → PASS
-- [~] P3.3 `evaluate.py --run baseline`: score DEV e1/e2 + EVAL e1/e2/e3 → baseline table §11 (marker `p3_baseline_eval`)
+- [x] P3.3 `evaluate.py --run baseline`: score DEV e1/e2 + EVAL e1/e2/e3 → baseline table §11 (marker `p3_baseline_eval`)
 - [ ] P3.4 (optional) Same for AASIST as an extra comparison row
 
 **P4 · ElevenLabs set (human task, runs in parallel with P2/P3)**
@@ -327,14 +327,18 @@ state/        *.done markers   ·   logs/events.log (one line per event, all acc
 ---
 
 ## 11. Results
-### Baseline (zero-shot, pretrained XLSR-SLS): EER %
+### Baseline (zero-shot, pretrained XLSR-SLS): EER % (primary window; multi-window in brackets)
+Run `baseline`, 2026-11-22, Colab T4, eval code e9072ad, torch 2.14.1 / transformers 5.22.1. τ (dev E2) = −12.48 log-odds.
 | Set | E1 clean | E2 telephony | E3 tel+Opus |
 |---|---|---|---|
-| DEV-LUMS | | | |
-| EVAL-LUMS (all) | | | |
-| EVAL-LUMS VITS | | | |
-| EVAL-LUMS Tacotron | | | |
+| DEV-LUMS (all) | 15.76 (15.51) | 26.49 (26.87) | – |
+| EVAL-LUMS (all) | **10.88** (8.12) | **26.02** (26.32) | **32.98** (33.08) |
+| EVAL-LUMS VITS | 15.80 (10.40) | 32.40 (30.80) | 36.00 (33.40) |
+| EVAL-LUMS Tacotron | 2.41 (3.62) | 20.20 (22.26) | 30.30 (32.96) |
 | EVAL-EL | | | – |
+
+At τ_dev on EVAL (all): bona fide reject / spoof accept = E1 1.0 % / 29.8 %, E2 17.9 % / 32.9 %, E3 **56.0 %** / 13.6 %. AUC E1 0.955, E2 0.822, E3 0.746.
+Reading: strong zero-shot on clean Urdu (LUMS paper's AASIST-L ≈ 50 %), but channel effects destroy it. Telephony/Opus push REAL speech toward "fake" (E3 bona fide median −13.1 vs spoof −15.4), which is the main target for fine-tuning with channel augmentation on both classes. VITS is the harder attack. Dev and eval agree (E2 26.5 vs 26.0), so the split looks sound.
 
 ### Final (fine-tuned): same table, filled in P6.
 
@@ -344,6 +348,7 @@ state/        *.done markers   ·   logs/events.log (one line per event, all acc
 | Date | Account | Step / run | Git hash | Outcome | Notes |
 |---|---|---|---|---|---|
 | 2026-11-22 | – | P1.1/P1.2 run on Colab | ok | 6,794 files, manifest sha256 38023632…, tar sha256 246626ff84f9… |
+| 2026-11-22 | – | P3.3 baseline eval on Colab T4 | e9072ad | ok | ~9–15 files/s on T4; full table in §11; EVAL EER E1 10.9 / E2 26.0 / E3 33.0 % |
 | 2026-11-22 | – | P3.1 + P3.2 on Colab T4 | 4a196bc | PASS | torch 2.14.1+cu130, transformers 5.22.1; parity on 23 windows (21 real TRAIN): CPU max|Δlogprob| 3.7e-4, GPU 1.1e-4, same decisions. Observations: Tacotron −10…−17, VITS −6…−14, bona fide −7.8…+12.5 (3/5 below 0) → default τ=0 would reject many real Urdu clips (hence τ from DEV). Silence/noise score +10.5 ("real"), so the detector must run after the Gatekeeper's no-speech check (P7) |
 | 2026-11-22 | – | P3 code written + local test | – | ok | parity vs ONNX on synthetic inputs: max |Δlogprob| 3.5e-5, same decisions; full P3.1→P3.3 chain + resume tested on fake data (CPU) |
 | 2026-11-22 | – | P2.2 build_eval.py run on Colab | 8120d99 | ok (~45 min) | dedupe dropped 99 (0 cross-split, 0 label conflicts); 19 short Tacotron clips dropped (<1 s after trim: eval 5, dev 7, train 7); energy >7.2 kHz ~5e-10 for all groups (Tacotron 20k 1.4e-9) → leak neutralised; p2_eval_built DONE |
