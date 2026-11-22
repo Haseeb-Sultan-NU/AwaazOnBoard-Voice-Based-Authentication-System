@@ -34,11 +34,11 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · Markers = files in `Awa
 - [ ] P0.4 Colab Secrets in each account: `GITHUB_TOKEN` (only if repo private), optional `HF_TOKEN`
 
 **P1 · Acquire LUMS data**
-- [ ] P1.1 `download_lums.py` → `raw/lums_urdu.tar` verified on Drive (marker `p1_download_lums`)
-- [ ] P1.2 `inventory.py` → `manifests/lums_all.csv` + summary pasted to Claude (marker `p1_inventory_lums`)
+- [x] P1.1 `download_lums.py` → `raw/lums_urdu.tar` verified on Drive (marker `p1_download_lums`)
+- [x] P1.2 `inventory.py` → `manifests/lums_all.csv` + summary pasted to Claude (marker `p1_inventory_lums`)
 
 **P2 · Freeze split + build the frozen eval set**
-- [ ] P2.1 Choose + commit speaker split → `deepfake/splits/lums_split.json` (marker `p2_split_frozen`)
+- [~] P2.1 (split committed; run `apply_split.py` to set marker) Choose + commit speaker split → `deepfake/splits/lums_split.json` (marker `p2_split_frozen`)
 - [ ] P2.2 Preprocess + build EVAL-LUMS E1/E2/E3 + DEV set, store as archives, hash them (marker `p2_eval_built`)
 - [ ] P2.3 Record manifest hashes in §8.5 (proof the eval set never changes)
 
@@ -191,7 +191,10 @@ Upstream stack is old: Python 3.7, torch 1.12.1, a pinned fairseq commit. That c
 ### 7.3 Splits (D1; freeze in P2.1)
 - LUMS: **8 train / 4 dev / 5 eval speakers**, speaker-disjoint across ALL classes (a speaker's bona fide + VITS + Tacotron go to the same split).
   Eval should contain both genders (use the inventory's F0 hint). IDs go in `deepfake/splits/lums_split.json` (committed) and are copied here.
-- Split IDs: _TBD after P1.2_
+- Split IDs (FROZEN 2026-11-22, seed 1234, gender via F0>160 Hz → 7F/10M as in paper):
+  train = S04 S05 S06 S07 S08 S11 S13 S15 (3F/5M); dev = S01 S02 S12 S14 (2F/2M); eval = S03 S09 S10 S16 S17 (2F/3M).
+  File: `deepfake/splits/lums_split.json` (sha256 82910e20…). Never edit.
+- Inventory facts: 6,794 files, 0 unreadable, mono PCM_16; 16 kHz ×4,996 + 20 kHz ×1,798 (**shortcut risk: check label×sr in apply_split output**); median 7.8 s, 246 clips < 4.04 s.
 
 ### 7.4 Preprocessing (all sources, deterministic)
 1. Decode → mono → resample to **16 kHz** float32.
@@ -291,6 +294,7 @@ state/        *.done markers   ·   logs/events.log (one line per event, all acc
 | `scripts/session_setup.py` | called by MASTER SEQUENCE: checks, folder layout, resources, cache restore, status board (`--init` creates the Drive folder) |
 | `scripts/download_lums.py` | P1.1 |
 | `scripts/inventory.py` | P1.2 |
+| `scripts/apply_split.py` | P2.1 |
 | `colab/AwaazDeepfake.ipynb` | thin runner notebook (MASTER SEQUENCE + one cell per step) |
 | `splits/` | frozen split JSONs (P2) |
 
@@ -313,6 +317,8 @@ state/        *.done markers   ·   logs/events.log (one line per event, all acc
 ## 12. Run log
 | Date | Account | Step / run | Git hash | Outcome | Notes |
 |---|---|---|---|---|---|
+| 2026-11-22 | – | P1.1/P1.2 run on Colab | ok | 6,794 files, manifest sha256 38023632…, tar sha256 246626ff84f9… |
+| 2026-11-22 | – | P2.1 split frozen (committed) | ok | split sha256 82910e20…; apply_split.py pending |
 | 2026-11-22 | – | P0 files created | – | ok | tracker, config, scripts, notebook (dry-run tested locally with fake data) |
 
 ---
@@ -332,7 +338,7 @@ state/        *.done markers   ·   logs/events.log (one line per event, all acc
 ## 14. Open decisions
 | ID | Decision | Status |
 |---|---|---|
-| D1 | LUMS speaker IDs per split | after P1.2 |
+| D1 | LUMS speaker IDs per split | DECIDED 2026-11-22 (see §7.3) |
 | D2 | HF port vs fairseq | P3.2 |
 | D3 | Trainable layers + LRs | before P5 |
 | D4 | Train augmentation set/probabilities | before P5 |
