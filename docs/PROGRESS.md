@@ -93,5 +93,5 @@ Update this file at the end of every piece of work.
 | 2026-11-22 | XLSR-SLS loaded via our own HF `transformers` port (no fairseq); parity vs the published ONNX model is required; score = log-odds | version-proof, no old torch/fairseq stack; DEEPFAKE_TRACKER §4.6, §8.2 |
 
 ## Next steps
-Deepfake defense: see the status board in `docs/DEEPFAKE_TRACKER.md` §2 (current: P0 setup → P1 LUMS download + inventory).
+Deepfake defense: see the status board in `docs/DEEPFAKE_TRACKER.md` §2 (current: P3 baseline evaluation).
 - [ ] Answer the open questions above, then correct these docs.
