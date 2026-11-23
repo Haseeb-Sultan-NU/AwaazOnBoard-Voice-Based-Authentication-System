@@ -283,7 +283,7 @@ checkpoints/<run>/   last.pt (weights + optimizer, ~4 GB), best.pt (fp16 weights
 results/<run>/       scores_*.csv, metrics.json
 state/        *.done markers   ·   logs/events.log (one line per event, all accounts)
 ```
-- Budget ≈ 12–13 GB at peak → fits a 15 GB free account **if** only one `last.pt` + one `best.pt` is kept per run.
+- **Storage (updated 2026-11-23): all three accounts have 5 TB (Google AI Pro), so quota is not a constraint.** Peak use ≈ 12–13 GB. The Trash purge after checkpoint saves stays on (harmless, keeps Trash clean); `raw/lums_urdu.tar` is kept.
 - ⚠ A file counts against the quota of **the account that created it**, even inside the shared folder. Deleted files sit in that
   account's **Trash and still count** until it's emptied. Empty Trash in the account that wrote old checkpoints.
 - Fast path: Drive is only for big archives + checkpoints. Training/eval read from `/content/work` (local SSD), which is restored from Drive archives by MASTER SEQUENCE.
