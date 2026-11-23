@@ -56,7 +56,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · Markers = files in `Awa
 **P5 · Fine-tuning** (recipe §6; D3/D4/D10 decided 2026-11-22)
 - [x] P5.0 `train.py` + `augment.py` written; locally tested (tiny model, CPU): smoke, Ctrl-C save, mid-epoch resume, finished-run guard, config-change guard, fp16 best.pt → evaluate loader
 - [x] P5.1 Colab smoke test (`--smoke`): speed, GPU memory, checkpoint round trip, Drive Trash purge
-- [ ] P5.2 Run `ft1` = LUMS train speakers only → P6 eval
+- [x] P5.2 Run `ft1` = LUMS train speakers only (best = epoch 7) → P6 eval pending
 - [ ] P5.3 Run `ft2` = LUMS + EL-adapt speakers (after P4) → ablation vs ft1 on EVAL-EL
 
 **P6 · Final evaluation** on the *same* frozen sets/script → final table §11
@@ -346,6 +346,16 @@ Run `baseline`, 2026-11-22, Colab T4, eval code e9072ad, torch 2.14.1 / transfor
 At τ_dev on EVAL (all): bona fide reject / spoof accept = E1 1.0 % / 29.8 %, E2 17.9 % / 32.9 %, E3 **56.0 %** / 13.6 %. AUC E1 0.955, E2 0.822, E3 0.746.
 Reading: strong zero-shot on clean Urdu (LUMS paper's AASIST-L ≈ 50 %), but channel effects destroy it. Telephony/Opus push REAL speech toward "fake" (E3 bona fide median −13.1 vs spoof −15.4), which is the main target for fine-tuning with channel augmentation on both classes. VITS is the harder attack. Dev and eval agree (E2 26.5 vs 26.0), so the split looks sound.
 
+### ft1 training curve (DEV only, primary window, fp16 scoring; baseline DEV = E1 15.76 / E2 26.49)
+| Epoch | 1 | 2 | 3 | 4 | 5 | 6 | **7** | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| DEV E1 EER % | 20.53 | 16.26 | 14.25 | 13.12 | 14.88 | 11.49 | **9.86** | 10.99 | 10.73 | 9.86 |
+| DEV E2 EER % | 24.61 | 22.35 | 22.47 | 22.10 | 23.23 | 20.03 | **17.14** | 19.15 | 20.03 | 17.89 |
+Reading: steady gains to epoch 7, then a plateau with ±2–3 pt epoch-to-epoch noise (DEV has only 4 speakers). Train loss stays ~0.25–0.5 (augmentation keeps the task hard; no sign of memorising). Epoch 1 is worse than baseline on E1 (20.5 vs 15.8): the head re-calibrates first. Ran the full 10 epochs (patience hit 3/3 at epoch 10).
+
+### Eval-looking rule (Golden rule 2, made explicit 2026-11-23)
+Every run gets ONE eval pass with `evaluate.py`, and every pass is logged in §12. The final model is chosen by **DEV** (`select` metric), never by EVAL. No recipe change may be motivated by an EVAL number; changes are justified by DEV/train behaviour only.
+
 ### Final (fine-tuned): same table, filled in P6.
 
 ---
@@ -354,6 +364,7 @@ Reading: strong zero-shot on clean Urdu (LUMS paper's AASIST-L ≈ 50 %), but ch
 | Date | Account | Step / run | Git hash | Outcome | Notes |
 |---|---|---|---|---|---|
 | 2026-11-22 | – | P1.1/P1.2 run on Colab | ok | 6,794 files, manifest sha256 38023632…, tar sha256 246626ff84f9… |
+| 2026-11-23 | acct 2 (switched mid-run) | P5.2 train ft1 | 6e2d591 code (0cc7985 = notebook saved from Colab, no code change) | ok | 10 epochs, 1,925 opt steps, ~7 min train + ~1 min DEV per epoch, 6–9 clips/s; resumed once at epoch 4; best epoch 7: DEV E1 9.86 % / E2 17.14 % (select 13.50 %); checkpoint saves 127–209 s; Trash purge always 0 (replaced copies apparently not trashed, or owned by the other account; irrelevant with 5 TB) |
 | 2026-11-23 | – | P5.1 smoke test on Colab T4 | 647879f | PASS | 9.2 clips/s, GPU peak 9.1 GB (batch 8, no grad-ckpt needed), 3.9 GB checkpoint → Drive in 67 s, reload identical, Trash purge ok; est. ~6 min train + ~4 min DEV per epoch (~1.6 h for 10 epochs) |
 | 2026-11-22 | – | P5 train.py written + local mechanics test | – | ok | tiny 2-layer model on CPU (full model needs the T4): smoke PASS, SIGINT save, resume at exact batch, finished/config guards, fp16 best.pt loads |
 | 2026-11-22 | – | P3.3 baseline eval on Colab T4 | e9072ad | ok | ~9–15 files/s on T4; full table in §11; EVAL EER E1 10.9 / E2 26.0 / E3 33.0 % |
