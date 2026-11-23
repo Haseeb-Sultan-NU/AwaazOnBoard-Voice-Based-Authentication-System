@@ -55,7 +55,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · Markers = files in `Awa
 
 **P5 · Fine-tuning** (recipe §6; D3/D4/D10 decided 2026-11-22)
 - [x] P5.0 `train.py` + `augment.py` written; locally tested (tiny model, CPU): smoke, Ctrl-C save, mid-epoch resume, finished-run guard, config-change guard, fp16 best.pt → evaluate loader
-- [ ] P5.1 Colab smoke test (`--smoke`): speed, GPU memory, checkpoint round trip, Drive Trash purge
+- [x] P5.1 Colab smoke test (`--smoke`): speed, GPU memory, checkpoint round trip, Drive Trash purge
 - [ ] P5.2 Run `ft1` = LUMS train speakers only → P6 eval
 - [ ] P5.3 Run `ft2` = LUMS + EL-adapt speakers (after P4) → ablation vs ft1 on EVAL-EL
 
@@ -354,6 +354,7 @@ Reading: strong zero-shot on clean Urdu (LUMS paper's AASIST-L ≈ 50 %), but ch
 | Date | Account | Step / run | Git hash | Outcome | Notes |
 |---|---|---|---|---|---|
 | 2026-11-22 | – | P1.1/P1.2 run on Colab | ok | 6,794 files, manifest sha256 38023632…, tar sha256 246626ff84f9… |
+| 2026-11-23 | – | P5.1 smoke test on Colab T4 | 647879f | PASS | 9.2 clips/s, GPU peak 9.1 GB (batch 8, no grad-ckpt needed), 3.9 GB checkpoint → Drive in 67 s, reload identical, Trash purge ok; est. ~6 min train + ~4 min DEV per epoch (~1.6 h for 10 epochs) |
 | 2026-11-22 | – | P5 train.py written + local mechanics test | – | ok | tiny 2-layer model on CPU (full model needs the T4): smoke PASS, SIGINT save, resume at exact batch, finished/config guards, fp16 best.pt loads |
 | 2026-11-22 | – | P3.3 baseline eval on Colab T4 | e9072ad | ok | ~9–15 files/s on T4; full table in §11; EVAL EER E1 10.9 / E2 26.0 / E3 33.0 % |
 | 2026-11-22 | – | P3.1 + P3.2 on Colab T4 | 4a196bc | PASS | torch 2.14.1+cu130, transformers 5.22.1; parity on 23 windows (21 real TRAIN): CPU max|Δlogprob| 3.7e-4, GPU 1.1e-4, same decisions. Observations: Tacotron −10…−17, VITS −6…−14, bona fide −7.8…+12.5 (3/5 below 0) → default τ=0 would reject many real Urdu clips (hence τ from DEV). Silence/noise score +10.5 ("real"), so the detector must run after the Gatekeeper's no-speech check (P7) |
