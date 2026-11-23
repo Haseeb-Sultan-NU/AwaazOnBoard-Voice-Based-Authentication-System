@@ -56,7 +56,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · Markers = files in `Awa
 **P5 · Fine-tuning** (recipe §6; D3/D4/D10 decided 2026-11-22)
 - [x] P5.0 `train.py` + `augment.py` written; locally tested (tiny model, CPU): smoke, Ctrl-C save, mid-epoch resume, finished-run guard, config-change guard, fp16 best.pt → evaluate loader
 - [x] P5.1 Colab smoke test (`--smoke`): speed, GPU memory, checkpoint round trip, Drive Trash purge
-- [x] P5.2 Run `ft1` = LUMS train speakers only (best = epoch 7) → P6 eval pending
+- [x] P5.2 Run `ft1` = LUMS train speakers only (best = epoch 7) → P6 eval done (one pass, 2026-11-23)
 - [ ] P5.3 Run `ft2` = LUMS + EL-adapt speakers (after P4) → ablation vs ft1 on EVAL-EL
 
 **P6 · Final evaluation** on the *same* frozen sets/script → final table §11
@@ -356,7 +356,25 @@ Reading: steady gains to epoch 7, then a plateau with ±2–3 pt epoch-to-epoch 
 ### Eval-looking rule (Golden rule 2, made explicit 2026-11-23)
 Every run gets ONE eval pass with `evaluate.py`, and every pass is logged in §12. The final model is chosen by **DEV** (`select` metric), never by EVAL. No recipe change may be motivated by an EVAL number; changes are justified by DEV/train behaviour only.
 
-### Final (fine-tuned): same table, filled in P6.
+### Final ft1 (fine-tuned, best epoch 7): EER % primary window (multi-window in brackets) · Δ vs baseline
+Run `ft1`, 2026-11-23, Colab T4, eval code 0cc7985 (= 6e2d591 code), same frozen manifests. τ (dev E2) = +1.10 log-odds.
+| Set | E1 clean | E2 telephony | E3 tel+Opus |
+|---|---|---|---|
+| DEV-LUMS (all) | 9.86 (8.60) | 17.14 (17.26) | – |
+| EVAL-LUMS (all) | **3.21** (2.71) ← 10.88 | **10.68** (11.78) ← 26.02 | **12.98** (12.98) ← 32.98 |
+| EVAL-LUMS VITS | 4.60 ← 15.80 | 14.60 ← 32.40 | 17.20 ← 36.00 |
+| EVAL-LUMS Tacotron | 0.80 ← 2.41 | 4.07 ← 20.20 | 5.68 ← 30.30 |
+| EVAL-EL | | | – |
+
+AUC E1 0.995 / E2 0.960 / E3 0.948 (baseline 0.955 / 0.822 / 0.746).
+At τ_dev on EVAL (all), bona fide reject / spoof accept: E1 0.1 % / 21.8 %, E2 9.1 % / 12.8 %, E3 23.0 % / 6.1 % (baseline 1.0/29.8, 17.9/32.9, 56.0/13.6).
+Reading:
+- EER cut by 70 % (E1), 59 % (E2), 61 % (E3); the gap between clean and channel conditions shrank from 22 to 10 pts. VITS remains the harder attack.
+- EVAL is better than DEV (3.2 vs 9.9 on E1). Eval was never used for any choice, so this is speaker difficulty, not leakage; with 4–5 speakers per set, expect several points of spread. Report both.
+- **One threshold does not fit all channels**: bona fide scores drop with channel (median 9.6 → 4.9 → 3.4 for E1/E2/E3), so the dev-E2 τ is too lenient on clean audio and too strict on E3. EER (threshold-free) is the fair before/after number; the deployment threshold must be calibrated on in-domain data (app/browser recordings from the EL set's non-eval speakers, P4/P7), never on EVAL.
+- Multi-window scoring gives no consistent gain on channel conditions → keep primary (first window) for deployment (also cheaper).
+- Caveat: E2/E3 are simulated channels close to the training augmentation; EVAL-EL is the out-of-distribution check.
+
 
 ---
 
@@ -364,6 +382,7 @@ Every run gets ONE eval pass with `evaluate.py`, and every pass is logged in §1
 | Date | Account | Step / run | Git hash | Outcome | Notes |
 |---|---|---|---|---|---|
 | 2026-11-22 | – | P1.1/P1.2 run on Colab | ok | 6,794 files, manifest sha256 38023632…, tar sha256 246626ff84f9… |
+| 2026-11-23 | – | P6 eval ft1 (single EVAL pass) | 0cc7985 | ok | EVAL EER E1 3.21 / E2 10.68 / E3 12.98 % (baseline 10.88 / 26.02 / 32.98); τ_dev = 1.10 |
 | 2026-11-23 | acct 2 (switched mid-run) | P5.2 train ft1 | 6e2d591 code (0cc7985 = notebook saved from Colab, no code change) | ok | 10 epochs, 1,925 opt steps, ~7 min train + ~1 min DEV per epoch, 6–9 clips/s; resumed once at epoch 4; best epoch 7: DEV E1 9.86 % / E2 17.14 % (select 13.50 %); checkpoint saves 127–209 s; Trash purge always 0 (replaced copies apparently not trashed, or owned by the other account; irrelevant with 5 TB) |
 | 2026-11-23 | – | P5.1 smoke test on Colab T4 | 647879f | PASS | 9.2 clips/s, GPU peak 9.1 GB (batch 8, no grad-ckpt needed), 3.9 GB checkpoint → Drive in 67 s, reload identical, Trash purge ok; est. ~6 min train + ~4 min DEV per epoch (~1.6 h for 10 epochs) |
 | 2026-11-22 | – | P5 train.py written + local mechanics test | – | ok | tiny 2-layer model on CPU (full model needs the T4): smoke PASS, SIGINT save, resume at exact batch, finished/config guards, fp16 best.pt loads |

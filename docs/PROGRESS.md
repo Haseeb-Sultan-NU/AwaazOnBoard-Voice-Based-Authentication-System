@@ -93,5 +93,5 @@ Update this file at the end of every piece of work.
 | 2026-11-22 | XLSR-SLS loaded via our own HF `transformers` port (no fairseq); parity vs the published ONNX model is required; score = log-odds | version-proof, no old torch/fairseq stack; DEEPFAKE_TRACKER §4.6, §8.2 |
 
 ## Next steps
-Deepfake defense: see the status board in `docs/DEEPFAKE_TRACKER.md` §2 (current: P5 fine-tuning; P3 baseline done: EVAL EER clean 10.9 %, telephony 26.0 %, tel+Opus 33.0 %).
+Deepfake defense: see the status board in `docs/DEEPFAKE_TRACKER.md` §2. Done: P0–P3, P5 run ft1, P6 for ft1 (EVAL EER clean 10.9 → 3.2 %, telephony 26.0 → 10.7 %, tel+Opus 33.0 → 13.0 %). Next: P4 ElevenLabs set (EVAL-EL), P7 backend integration (threshold calibrated on in-domain app recordings, not EVAL).
 - [ ] Answer the open questions above, then correct these docs.
