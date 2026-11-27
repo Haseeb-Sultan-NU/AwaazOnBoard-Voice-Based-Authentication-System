@@ -91,6 +91,7 @@ Update this file at the end of every piece of work.
 | 2026-11-22 | Deepfake work tracked in `docs/DEEPFAKE_TRACKER.md`; Colab-first workflow (code in repo → Colab pulls it; Drive `MyDrive/AwaazDeepfake` = durable storage, shared across rotated free accounts); branch `feature/deepfake-defense` | free Colab timeouts + low local disk |
 | 2026-11-22 | LUMS data: 7 kHz common band-limit (D8) because Tacotron clips are all 20 kHz (label leak); 99 duplicates removed; split frozen 8/4/5 | see DEEPFAKE_TRACKER §7.3, §8.5 |
 | 2026-11-22 | XLSR-SLS loaded via our own HF `transformers` port (no fairseq); parity vs the published ONNX model is required; score = log-odds | version-proof, no old torch/fairseq stack; DEEPFAKE_TRACKER §4.6, §8.2 |
+| 2026-11-27 | P4 own recordings dropped; proposed open-source clone set (Common Voice Urdu CC0 + local open-source cloning), supervisor-approved; ElevenLabs not used for third-party voices | Haseeb won't record; ElevenLabs policy requires the cloned person's consent; see DEEPFAKE_TRACKER §7.2b |
 
 ## Next steps
 Deepfake defense: see the status board in `docs/DEEPFAKE_TRACKER.md` §2. Done: P0–P3, P5 run ft1, P6 for ft1 (EVAL EER clean 10.9 → 3.2 %, telephony 26.0 → 10.7 %, tel+Opus 33.0 → 13.0 %). Next: P4 ElevenLabs set (EVAL-EL), P7 backend integration (threshold calibrated on in-domain app recordings, not EVAL).

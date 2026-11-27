@@ -200,6 +200,16 @@ Upstream stack is old: Python 3.7, torch 1.12.1, a pinned fairseq commit. That c
 | Optional | replay attack: play clone through a phone speaker, re-record via the app |
 | Storage | Drive `raw/elevenlabs/` only (never git) · delete after the FYP |
 
+### 7.2b PROPOSED replacement for 7.2 (2026-11-27): open-source clone set (EVAL-OSC), no own recordings
+Haseeb will not record; supervisor approved using openly licensed audio. Plan (pending go-ahead):
+- **Bona fide:** Mozilla Common Voice Urdu (CC0, consent-based crowdsourcing; anonymous `client_id` gives speaker grouping; download via Mozilla Data Collective). Optional: Google FLEURS `ur_pk` (CC-BY-4.0, on HF).
+- **Clones:** generated locally on Colab with open-source zero-shot cloning models (candidates: OmniVoice, XTTS-v2-Urdu-FT). **Not ElevenLabs**: its policy forbids cloning an identifiable person without their consent, and a CC0 licence is not the speaker's consent to be cloned.
+- Per speaker: 1–2 reference clips used only for cloning (never scored); remaining real clips = bona fide; clones say the SAME transcripts (no text shortcut).
+- Format-leak guard: Common Voice is crowd-recorded MP3, clones are clean WAV → clones get the same MP3 round trip, then both go through §7.4 + E1/E2/E3.
+- Speaker split: EVAL-OSC (frozen, scored once per model) vs CAL-OSC (threshold calibration only).
+- Bonus: enrol a Common Voice speaker in Awaaz with their real clips, attack with their clone → ECAPA-alone vs ECAPA+detector demo without anyone recording.
+- Rules: research/defence use only; clones stay on Drive, never published; no attempt to identify speakers; delete after the FYP; cite licences in the report.
+
 ### 7.3 Splits (D1; freeze in P2.1)
 - LUMS: **8 train / 4 dev / 5 eval speakers**, speaker-disjoint across ALL classes (a speaker's bona fide + VITS + Tacotron go to the same split).
   Eval should contain both genders (use the inventory's F0 hint). IDs go in `deepfake/splits/lums_split.json` (committed) and are copied here.
