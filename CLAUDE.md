@@ -106,5 +106,6 @@ cd bank-frontend && npm install && npm run dev -- -p 3001
 ## Docs
 - `docs/ARCHITECTURE.md`: per-module map, every endpoint, data model, end-to-end flows, config/secrets.
 - `docs/PROGRESS.md`: what works, what's broken, suspected bugs, open questions, decisions log, next steps.
+- `docs/DEMO_QA.md`: examiner-style questions and answers for the deepfake demo (append new ones).
 - `docs/DEEPFAKE_TRACKER.md`: **current focus.** Deepfake-defense status board, exact model/training constraints,
   frozen-eval rules, Colab/Drive manual, run log. Read it for any deepfake task and update it after every step.
